@@ -1,0 +1,130 @@
+# Copyright 2019 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+## Assumptions
+
+## - GCP Project resources (Service Accounts, IAM, Anthos Fleet, Dashboards / Alerts, etc...) are all created upstream
+##     e.g. SA Impersonation Cloud Build
+## - Cluster specific resources (Robin license, Secrets, VM images, etc...) are all created upstream
+## - Some trigger exists to kick off cloud build with the property substitution variables
+## - Validations needed
+
+## gcloud builds submit . --config create-cluster.yaml
+
+steps:
+
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: bash
+  id: Gather Inputs
+  args:
+  - '-c'
+  - |
+    echo "Mocked step for now!"
+    # This is a mocked out step for now. The implementation will query against a
+    # a source of truth to gather and validate inputs. For now, parameters are passed
+    # in via substitutions.
+
+- name: 'gcr.io/cloud-builders/gcloud'
+  script: |
+    # gcloud config set api_endpoint_overrides/gkehub https://staging-gkehub.sandbox.googleapis.com/
+    # gcloud config set api_endpoint_overrides/edgecontainer https://staging-edgecontainer.sandbox.googleapis.com/
+
+    gcloud edge-cloud container clusters describe $_CLUSTER_NAME --location $_LOCATION
+
+    if [ $? -eq 0 ]; then
+      echo "Cluster already created, skipping to next step."
+    else
+      echo "Creating cluster"
+
+      gcloud edge-cloud container clusters create $_CLUSTER_NAME \
+          --control-plane-node-location=$_NODE_LOCATION \
+          --control-plane-node-count=$_NODE_COUNT \
+          --external-lb-ipv4-address-pools=$_EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS \
+          --control-plane-shared-deployment-policy=ALLOWED \
+          --location=$_LOCATION \
+          --project=$_FLEET_PROJECT_ID \
+          --release-channel=$_RELEASE_CHANNEL
+    fi
+
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: bash
+  id: Config Sync Bootstrap
+  args:
+  - '-c'
+  - |-
+    set -x
+    apt-get update
+    apt-get install -y gettext-base
+    export KUBECONFIG="$(pwd)/gateway-kubeconfig"
+    gcloud container fleet memberships get-credentials $_CLUSTER_NAME
+
+    gsutil cp gs://gdce-cluster-provisioner-bucket/apply-spec.yaml.template .
+    gsutil cp gs://gdce-cluster-provisioner-bucket/cluster-secret-store.yaml.template .
+
+    envsubst < apply-spec.yaml.template > apply-spec.yaml
+    envsubst < cluster-secret-store.yaml.template > cluster-secret-store.yaml
+
+    cat apply-spec.yaml
+
+    { cat > users.txt <<EOF
+    bfogel@google.com
+    EOF
+    } && cmd_1='kubectl create clusterrolebinding --dry-run=client -oyaml "solutions-cluster-admins" --clusterrole cluster-admin '; echo $cmd_1; while read line; do cmd_1+="--user ${line} "; done < users.txt; echo $cmd_1; eval $cmd_1|kubectl apply -f -  &&
+
+    gcloud secrets versions access latest --secret=$_GIT_TOKEN_SECRETS_MANAGER_NAME >> $(pwd)/git-creds
+    kubectl create ns config-management-system --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create secret generic git-creds --namespace="config-management-system" --from-literal=username=default --from-file=token=$(pwd)/git-creds --dry-run=client -o yaml | kubectl apply -f -
+
+    gcloud beta container fleet config-management apply --membership=$_CLUSTER_NAME --config=./apply-spec.yaml
+
+    TODO(bfogel) - Query against configsync status before proceeding, for now a 30 second sleep is enough for CRDs to deploy.
+    sleep 30
+
+
+    # Wait for external secrets CRD before applying ClusterSecretStore
+    kubectl wait --for condition=established --timeout=120s crd/externalsecrets.external-secrets.io
+
+    kubectl apply -f cluster-secret-store.yaml
+  env:
+  - '_SYNC_REPO=$_SYNC_REPO'
+  - '_SYNC_BRANCH=$_SYNC_BRANCH'
+  - '_SYNC_DIR=$_SYNC_DIR'
+
+# - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+#   entrypoint: bash
+#   id: Write state back
+#   args:
+#   - '-c'
+#   - |
+#     set -x && \
+#     echo "Mocked method for signaling cluster creation complete..."
+    
+options:
+  automapSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY
+serviceAccount: projects/gmec-developers-1/serviceAccounts/gdce-provisioning-agent@gmec-developers-1.iam.gserviceaccount.com
+substitutions:
+  _FLEET_PROJECT_ID: gmec-developers-1
+  _CLUSTER_NAME: lcp-den29
+  _LOCATION: us-central1
+  # _CLUSTER_IPV4_CIDR_BLOCKS: "10.0.0.0/17"
+  # _SERVICES_IPV4_CIDR_BLOCKS: "10.96.0.0/12"
+  _NODE_LOCATION: "us-central1-edge-den25349"
+  _NODE_COUNT: "1"
+  _EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS: "172.17.34.96-172.17.34.100"
+  _RELEASE_CHANNEL: "NONE"
+  _SYNC_REPO: "https://gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/primary-root-repo"
+  _SYNC_BRANCH: "main"
+  _SYNC_DIR: "/config/clusters/den29/meta"
+  _GIT_TOKEN_SECRETS_MANAGER_NAME: shyguy-internal-pat

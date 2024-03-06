@@ -1,0 +1,11 @@
+applySpecVersion: 1
+spec:
+  configSync:
+    enabled: true
+    preventDrift: false
+    sourceType: git
+    sourceFormat: unstructured
+    syncRepo: $_SYNC_REPO
+    syncBranch: $_SYNC_BRANCH
+    policyDir: $_SYNC_DIR
+    secretType: token
