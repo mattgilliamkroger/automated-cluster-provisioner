@@ -5,7 +5,7 @@ spec:
     preventDrift: false
     sourceType: git
     sourceFormat: unstructured
-    syncRepo: $_SYNC_REPO
-    syncBranch: $_SYNC_BRANCH
-    policyDir: $_SYNC_DIR
+    syncRepo: $SYNC_REPO
+    syncBranch: $SYNC_BRANCH
+    policyDir: $SYNC_DIR
     secretType: token
