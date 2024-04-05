@@ -14,32 +14,23 @@ from google.cloud.devtools import cloudbuild
 @functions_framework.http
 def zone_watcher(req: flask.Request):
 
-    if req:  # for on-cloud test, where request is not None
-        proj_id = os.environ.get("GOOGLE_CLOUD_PROJECT") # This is the project id of where the csv file located
-        region = os.environ.get("REGION")
-        gcs_config_uri = os.environ.get("CONFIG_CSV")
-        # format: projects/<project-id>/locations/<location>/triggers/<trigger-name>
-        # e.g. projects/daniel-test-proj-411311/locations/us-central1/triggers/test-trigger
-        # location could be "global"
-        cb_trigger = f'projects/{proj_id}/locations/{region}/triggers/{os.environ.get("CB_TRIGGER_NAME")}'
+    proj_id = os.environ.get("GOOGLE_CLOUD_PROJECT") # This is the project id of where the csv file located
+    region = os.environ.get("REGION")
+    gcs_config_uri = os.environ.get("CONFIG_CSV")
+    # format: projects/<project-id>/locations/<location>/triggers/<trigger-name>
+    # e.g. projects/daniel-test-proj-411311/locations/us-central1/triggers/test-trigger
+    # location could be "global"
+    cb_trigger = f'projects/{proj_id}/locations/{region}/triggers/{os.environ.get("CB_TRIGGER_NAME")}'
+    if proj_id is None:
+        raise Exception('missing GOOGLE_CLOUD_PROJECT, (gcs csv file project)')
+    if region is None:
+        raise Exception('missing REGION (us-central1)')
+    if gcs_config_uri is None:
+        raise Exception('missing CONFIG_CSV (gs://<bucket_name>/<csv_file_path>)')
+    if cb_trigger is None:
+        raise Exception('missing CB_TRIGGER_NAME (projects/<project-id>/locations/<location>/triggers/<trigger-name>)')
 
-        if proj_id is None:
-            raise Exception('missing projectid, (gcs csv file project)')
-        if region is None:
-            raise Exception('missing region (us-central1)')
-        if gcs_config_uri is None:
-            raise Exception('missing config-csv (gs://<bucket_name/<csv_file_path>>)')
-        if cb_trigger is None:
-            raise Exception('missing cb-trigger (projects/<project-id>/locations/<location>/triggers/<trigger-name>)')
-        
-        log_lvl = logging.DEBUG if os.environ.get("LOG_LEVEL") == 'debug' else logging.INFO
-
-    else:
-        # mock up: for off-cloud test run
-        proj_id = 'gmec-developers-1'
-        gcs_config_uri = 'gs://gdce-cluster-provisioner-bucket/cluster-intent-registry.csv'
-        cb_trigger = 'projects/daniel-test-proj-411311/locations/us-central1/triggers/test-trigger'
-        log_lvl = logging.DEBUG
+    log_lvl = logging.DEBUG if os.environ.get("LOG_LEVEL").lower() == 'debug' else logging.INFO
 
     # set log level, default is INFO, unless has {debug: true} in request
     logger = logging.getLogger()
@@ -58,13 +49,16 @@ def zone_watcher(req: flask.Request):
     blob = storage.Blob.from_string(uri=gcs_config_uri, client=sto_client)
     zone_config_fio = io.StringIO(blob.download_as_bytes().decode())  # download the content to memory
     rdr = csv.DictReader(zone_config_fio)  # will raise exception if csv parsing fails
+    machine_proj_loc = set()
     for row in rdr:
         if row['LOCATION'] not in config_zone_info.keys():
             config_zone_info[row['LOCATION']] = {}
         config_zone_info[row['LOCATION']][row['NODE_LOCATION']] = row
+        machine_proj_loc.add((row['MACHINE_PROJECT_ID'], row['LOCATION']))
     for loc in config_zone_info:
         logger.debug(f'Zones to check in {loc} => {len(config_zone_info[loc])}')
-    assert len(config_zone_info) > 0, 'no valid zone listed in config file'
+    if len(config_zone_info) == 0:
+        raise Exception('no valid zone listed in config file')
 
     edgecontainer_api_endpoint_override = os.environ.get("EDGE_CONTAINER_API_ENDPOINT_OVERRIDE")
 
@@ -76,23 +70,31 @@ def zone_watcher(req: flask.Request):
 
     cb_client = cloudbuild.CloudBuildClient()
 
+    # get machines list per machine_project per location, and group by GDCE zone
+    machine_lists = {}
+    for m_proj, loc in machine_proj_loc:
+        req = edgecontainer.ListMachinesRequest(
+            parent=ec_client.common_location_path(m_proj, loc)
+        )
+        res_pager = ec_client.list_machines(req)
+        for m in res_pager:
+            if m.zone not in machine_lists:
+                machine_lists[m.zone] = [m]
+            else:
+                machine_lists[m.zone].append(m)
+
     # if cluster already present in the zone, skip this zone
-    # method: get all the machines in the zone, and check if "hosted_node" has any value in it
+    # method: check all the machines in the zone, and check if "hosted_node" has any value in it
     count = 0
     for loc in config_zone_info:
         for z in config_zone_info[loc]:
+            if z not in machine_lists:
+                logger.warning(f'No machine found in {z}')
+                continue
             has_cluster = False
-            req = edgecontainer.ListMachinesRequest(
-                parent=ec_client.common_location_path(config_zone_info[loc][z]['MACHINE_PROJECT_ID'], loc)
-            )
-            res_pager = ec_client.list_machines(req)
-            res_list = [res for res in res_pager]
-            for res in res_list:
-                if (config_zone_info[loc][z]['NODE_LOCATION'] != res.zone):
-                    continue
-
-                if len(res.hosted_node.strip()) > 0:  # if there is any value, consider there is a cluster
-                    logger.info(f'ZONE {z}: {res.name} already used by {res.hosted_node}')
+            for m in machine_lists[z]:
+                if len(m.hosted_node.strip()) > 0:  # if there is any value, consider there is a cluster
+                    logger.info(f'ZONE {z}: {m.name} already used by {m.hosted_node}')
                     has_cluster = True
                     break
             if has_cluster:
