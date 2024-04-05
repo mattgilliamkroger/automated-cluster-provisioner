@@ -1,3 +1,10 @@
+resource "google_project_service" "project" {
+  for_each = toset(var.gcp_project_services)
+  service  = each.value
+
+  disable_on_destroy = false
+}
+
 resource "google_storage_bucket" "gdce-cluster-provisioner-bucket" {
     name = "gdce-cluster-provisioner-bucket"
     location = "US"
@@ -42,11 +49,11 @@ module "gcloud" {
      alpha builds triggers create manual \
        --name=gdce-cluster-provisioner-trigger \
        --inline-config=create-cluster.yaml \
-       --region=us-central1 \
-       --service-account=projects/gmec-developers-1/serviceAccounts/gdce-provisioning-agent@gmec-developers-1.iam.gserviceaccount.com
+       --region=${var.region} \
+       --service-account=projects/${var.project}/serviceAccounts/gdce-provisioning-agent@${var.project}.iam.gserviceaccount.com
    EOL
   destroy_cmd_entrypoint = "gcloud"
-  destroy_cmd_body       = "alpha builds triggers delete gdce-cluster-provisioner-trigger --region us-central1"
+  destroy_cmd_body       = "alpha builds triggers delete gdce-cluster-provisioner-trigger --region ${var.region}"
 }
 
 resource "google_service_account" "gdce-provisioning-agent" {
@@ -87,4 +94,113 @@ resource "google_project_iam_member" "gdce-provisioning-agent-hub-gateway" {
   project = var.project
   role    = "roles/gkehub.gatewayAdmin"
   member  = google_service_account.gdce-provisioning-agent.member
+}
+
+resource "google_service_account" "es-agent" {
+    account_id = "es-agent"
+}
+
+resource "google_project_iam_member" "es-agent-secret-accessor" {
+  project = var.project
+  role    = "roles/secretmanager.secretAccessor"
+  member  = google_service_account.es-agent.member
+}
+
+data "archive_file" "zone-watcher" {
+  type        = "zip"
+  output_path = "/tmp/zone_watcher_gcf.zip"
+  source_dir  = "./zone-watcher/cloud_function_source/"
+}
+
+resource "google_storage_bucket_object" "zone-watcher-src" {
+  name   = "zone_watcher_gcf.zip"
+  bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
+  source = data.archive_file.zone-watcher.output_path # Add path to the zipped function source code
+}
+
+resource "google_service_account" "zone-watcher-agent" {
+  account_id = "zone-watcher-agent"
+  display_name = "Zone Watcher Service Account"
+}
+
+resource "google_project_iam_member" "zone-watcher-agent-storage-admin" {
+  project = var.project
+  role    = "roles/storage.admin"
+  member  = google_service_account.zone-watcher-agent.member
+}
+
+resource "google_project_iam_member" "zone-watcher-agent-cloud-build-editor" {
+  project = var.project
+  role    = "roles/cloudbuild.builds.editor"
+  member  = google_service_account.zone-watcher-agent.member
+}
+
+resource "google_project_iam_member" "zone-watcher-agent-impersonate-sa" {
+  project = var.project
+  role    = "roles/iam.serviceAccountTokenCreator"
+  member  = google_service_account.zone-watcher-agent.member
+}
+
+resource "google_project_iam_member" "zone-watcher-agent-token-user" {
+  project = var.project
+  role    = "roles/iam.serviceAccountUser"
+  member  = google_service_account.zone-watcher-agent.member
+}
+
+# zone-watcher cloud function
+resource "google_cloudfunctions2_function" "zone-watcher" {
+  name        = "zone-watcher"
+  location    = var.region
+  description = "zone watcher function"
+
+  build_config {
+    runtime     = "python312"
+    entry_point = "zone_watcher" # Set the entry point
+    source {
+      storage_source {
+        bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
+        object = google_storage_bucket_object.zone-watcher-src.name
+      }
+    }
+  }
+
+  service_config {
+    max_instance_count = 1
+    available_memory   = "256M"
+    timeout_seconds    = 60
+    environment_variables = {
+      GOOGLE_CLOUD_PROJECT = var.project,
+      CONFIG_CSV = "gs://${google_storage_bucket.gdce-cluster-provisioner-bucket.name}/${google_storage_bucket_object.cluster-intent-registry.output_name}",
+      CB_TRIGGER_NAME = "gdce-cluster-provisioner-trigger"
+      REGION = var.region
+      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = "staging-edgecontainer.sandbox.googleapis.com"
+    }
+    service_account_email = google_service_account.zone-watcher-agent.email
+  }
+}
+
+
+resource "google_cloud_run_service_iam_member" "member" {
+  location = google_cloudfunctions2_function.zone-watcher.location
+  service  = google_cloudfunctions2_function.zone-watcher.name
+  role     = "roles/run.invoker"
+  member   = google_service_account.gdce-provisioning-agent.member
+}
+
+resource "google_cloud_scheduler_job" "job" {
+  name             = "zone-watcher-scheduler"
+  description      = "Trigger the ${google_cloudfunctions2_function.zone-watcher.name}"
+  schedule         = "0 0 1 * *"  # TBC
+  time_zone        = "Europe/Dublin"  # TBC
+  attempt_deadline = "320s"  # TBC
+  region = var.region
+
+  http_target {
+    http_method = "POST"
+    uri         = google_cloudfunctions2_function.zone-watcher.service_config[0].uri
+
+    oidc_token {
+      service_account_email = google_service_account.gdce-provisioning-agent.email
+    }
+  }
 }

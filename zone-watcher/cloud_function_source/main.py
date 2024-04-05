@@ -15,32 +15,28 @@ from google.cloud.devtools import cloudbuild
 def zone_watcher(req: flask.Request):
 
     if req:  # for on-cloud test, where request is not None
-
-        request_json = req.get_json(silent=True, force=True)  # ignor the content type and force parse to json
-        if not request_json:
-            raise Exception('Invalid json request body')
-
-        if 'projectid' not in request_json:
-            raise Exception('missing projectid, (gcs csv file project)')
-        if 'config-csv' not in request_json:
-            raise Exception('missing config-csv (gs://<bucket_name/<csv_file_path>>)')
-        if 'cb-trigger' not in request_json:
-            raise Exception('missing cb-trigger (projects/<project-id>/locations/<location>/triggers/<trigger-name>)')
-
-        proj_id = request_json['projectid']  # This is the project id of where the csv file located
-        os.environ['GOOGLE_CLOUD_PROJECT'] = proj_id
-        gcs_config_uri = request_json['config-csv']
+        proj_id = os.environ.get("GOOGLE_CLOUD_PROJECT") # This is the project id of where the csv file located
+        region = os.environ.get("REGION")
+        gcs_config_uri = os.environ.get("CONFIG_CSV")
         # format: projects/<project-id>/locations/<location>/triggers/<trigger-name>
         # e.g. projects/daniel-test-proj-411311/locations/us-central1/triggers/test-trigger
         # location could be "global"
-        cb_trigger = request_json['cb-trigger']
-        run_environment = 'STAGING' if 'env' in request_json and request_json['env'].upper() == 'STAGING' else 'PROD'
-        log_lvl = logging.DEBUG if 'debug' in request_json and request_json['debug'] else logging.INFO
+        cb_trigger = f'projects/{proj_id}/locations/{region}/triggers/{os.environ.get("CB_TRIGGER_NAME")}'
+
+        if proj_id is None:
+            raise Exception('missing projectid, (gcs csv file project)')
+        if region is None:
+            raise Exception('missing region (us-central1)')
+        if gcs_config_uri is None:
+            raise Exception('missing config-csv (gs://<bucket_name/<csv_file_path>>)')
+        if cb_trigger is None:
+            raise Exception('missing cb-trigger (projects/<project-id>/locations/<location>/triggers/<trigger-name>)')
+        
+        log_lvl = logging.DEBUG if os.environ.get("LOG_LEVEL") == 'debug' else logging.INFO
 
     else:
         # mock up: for off-cloud test run
         proj_id = 'gmec-developers-1'
-        run_environment = 'PROD'
         gcs_config_uri = 'gs://gdce-cluster-provisioner-bucket/cluster-intent-registry.csv'
         cb_trigger = 'projects/daniel-test-proj-411311/locations/us-central1/triggers/test-trigger'
         log_lvl = logging.DEBUG
@@ -50,7 +46,6 @@ def zone_watcher(req: flask.Request):
     logging.basicConfig(stream=sys.stdout, level=log_lvl)
 
     logger.info(f'proj_id = {proj_id}')
-    logger.info(f'run_environment = {run_environment}')
     logger.info(f'gcs_config_uri = {gcs_config_uri}')
     logger.info(f'cb_trigger = {cb_trigger}')
     logger.debug(f'log_lvl = {log_lvl}')
@@ -71,11 +66,10 @@ def zone_watcher(req: flask.Request):
         logger.debug(f'Zones to check in {loc} => {len(config_zone_info[loc])}')
     assert len(config_zone_info) > 0, 'no valid zone listed in config file'
 
-    # for edge container API, we will use staging environment for develop and testing.
-    # for real customer, it should always be prod environment
-    # for other APIs, such as storage and cloud build, always using prod environment
-    if run_environment == 'STAGING':  # override with staging endpoint
-        op = client_options.ClientOptions(api_endpoint='staging-edgecontainer.sandbox.googleapis.com')
+    edgecontainer_api_endpoint_override = os.environ.get("EDGE_CONTAINER_API_ENDPOINT_OVERRIDE")
+
+    if edgecontainer_api_endpoint_override is not None:
+        op = client_options.ClientOptions(api_endpoint=edgecontainer_api_endpoint_override)
         ec_client = edgecontainer.EdgeContainerClient(client_options=op)
     else:  # use the default prod endpoint
         ec_client = edgecontainer.EdgeContainerClient()
@@ -94,6 +88,9 @@ def zone_watcher(req: flask.Request):
             res_pager = ec_client.list_machines(req)
             res_list = [res for res in res_pager]
             for res in res_list:
+                if (config_zone_info[loc][z]['NODE_LOCATION'] != res.zone):
+                    continue
+
                 if len(res.hosted_node.strip()) > 0:  # if there is any value, consider there is a cluster
                     logger.info(f'ZONE {z}: {res.name} already used by {res.hosted_node}')
                     has_cluster = True

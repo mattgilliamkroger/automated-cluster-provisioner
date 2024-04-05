@@ -15,7 +15,7 @@ steps:
 
     echo $CLUSTER_INTENT
 
-    if [ -z "$CLUSTER_INTENT"]; then
+    if [ -z "$CLUSTER_INTENT" ]; then
       echo "Cluster intent not found for $NODE_LOCATION"
       exit 1
     fi
@@ -34,9 +34,15 @@ steps:
     export GIT_TOKEN_SECRETS_MANAGER_NAME=$(echo $CLUSTER_INTENT | csvtool col 11 -)
     export ES_AGENT_SECRETS_MANAGER_NAME=$(echo $CLUSTER_INTENT | csvtool col 12 -)
 
-    # Uncomment the following lines if using staging machines
-    # gcloud config set api_endpoint_overrides/gkehub https://staging-gkehub.sandbox.googleapis.com/
-    # gcloud config set api_endpoint_overrides/edgecontainer https://staging-edgecontainer.sandbox.googleapis.com/
+    if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
+      echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
+      gcloud config set api_endpoint_overrides/edgecontainer $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE
+    fi
+
+    if [ -n "${GKEHUB_API_ENDPOINT_OVERRIDE:-}" ]; then
+      echo "Setting api_endpoint_overrides/gkehub to $GKEHUB_API_ENDPOINT_OVERRIDE"
+      gcloud config set api_endpoint_overrides/gkehub $GKEHUB_API_ENDPOINT_OVERRIDE
+    fi
 
     gcloud edge-cloud container clusters describe $CLUSTER_NAME --location $LOCATION
 
@@ -87,9 +93,13 @@ steps:
     kubectl apply -f cluster-secret-store.yaml
   env:
   - 'NODE_LOCATION=$_NODE_LOCATION'
+  - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
+  - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'
    
 options:
   logging: CLOUD_LOGGING_ONLY
 serviceAccount: projects/gmec-developers-1/serviceAccounts/gdce-provisioning-agent@gmec-developers-1.iam.gserviceaccount.com
 substitutions:
   _NODE_LOCATION: "us-central1-edge-den25349"
+  _GKEHUB_API_ENDPOINT_OVERRIDE: "https://staging-edgecontainer.sandbox.googleapis.com/"
+  _EDGE_CONTAINER_API_ENDPOINT_OVERRIDE: "https://staging-edgecontainer.sandbox.googleapis.com/"
