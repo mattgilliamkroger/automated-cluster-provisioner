@@ -1,0 +1,5 @@
+functions-framework==3.*
+google-cloud-build
+google-cloud-edgecontainer
+google-cloud-edgenetwork
+google-cloud-storage
