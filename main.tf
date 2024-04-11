@@ -6,32 +6,32 @@ resource "google_project_service" "project" {
 }
 
 resource "google_storage_bucket" "gdce-cluster-provisioner-bucket" {
-    name = "gdce-cluster-provisioner-bucket"
-    location = "US"
-    storage_class = "STANDARD"
+  name          = "gdce-cluster-provisioner-bucket-${var.environment}"
+  location      = "US"
+  storage_class = "STANDARD"
 
-    uniform_bucket_level_access = true
+  uniform_bucket_level_access = true
 }
 
 resource "google_storage_bucket_object" "apply-spec" {
-    name = "apply-spec.yaml.template"
-    source = "./apply-spec.yaml.template"
-    content_type = "text/plain"
-    bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.id
+  name         = "apply-spec.yaml.template"
+  source       = "./apply-spec.yaml.template"
+  content_type = "text/plain"
+  bucket       = google_storage_bucket.gdce-cluster-provisioner-bucket.id
 }
 
 resource "google_storage_bucket_object" "cluster-secret-store" {
-    name = "cluster-secret-store.yaml.template"
-    source = "./cluster-secret-store.yaml"
-    content_type = "text/plain"
-    bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.id
+  name         = "cluster-secret-store.yaml.template"
+  source       = "./cluster-secret-store.yaml"
+  content_type = "text/plain"
+  bucket       = google_storage_bucket.gdce-cluster-provisioner-bucket.id
 }
 
 resource "google_storage_bucket_object" "cluster-intent-registry" {
-    name = "cluster-intent-registry.csv"
-    source = "./cluster-intent-registry.csv"
-    content_type = "text/plain"
-    bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.id
+  name         = "cluster-intent-registry.csv"
+  source       = "./cluster-intent-registry.csv"
+  content_type = "text/plain"
+  bucket       = google_storage_bucket.gdce-cluster-provisioner-bucket.id
 }
 
 
@@ -41,23 +41,23 @@ module "gcloud" {
   source  = "terraform-google-modules/gcloud/google"
   version = "~> 3.4"
 
-  platform = "linux"
+  platform              = "linux"
   additional_components = ["alpha"]
 
   create_cmd_entrypoint  = "gcloud"
   create_cmd_body        = <<EOL
      alpha builds triggers create manual \
-       --name=gdce-cluster-provisioner-trigger \
+       --name=gdce-cluster-provisioner-trigger-${var.environment} \
        --inline-config=create-cluster.yaml \
        --region=${var.region} \
-       --service-account=projects/${var.project}/serviceAccounts/gdce-provisioning-agent@${var.project}.iam.gserviceaccount.com
+       --service-account=projects/${var.project}/serviceAccounts/gdce-provisioning-agent-${var.environment}@${var.project}.iam.gserviceaccount.com
    EOL
   destroy_cmd_entrypoint = "gcloud"
-  destroy_cmd_body       = "alpha builds triggers delete gdce-cluster-provisioner-trigger --region ${var.region}"
+  destroy_cmd_body       = "alpha builds triggers delete gdce-cluster-provisioner-trigger-${var.environment} --region ${var.region}"
 }
 
 resource "google_service_account" "gdce-provisioning-agent" {
-    account_id = "gdce-provisioning-agent"
+  account_id = "gdce-prov-agent-${var.environment}"
 }
 
 resource "google_project_iam_member" "gdce-provisioning-agent-edge-admin" {
@@ -97,7 +97,7 @@ resource "google_project_iam_member" "gdce-provisioning-agent-hub-gateway" {
 }
 
 resource "google_service_account" "es-agent" {
-    account_id = "es-agent"
+  account_id = "es-agent-${var.environment}"
 }
 
 resource "google_project_iam_member" "es-agent-secret-accessor" {
@@ -119,7 +119,7 @@ resource "google_storage_bucket_object" "zone-watcher-src" {
 }
 
 resource "google_service_account" "zone-watcher-agent" {
-  account_id = "zone-watcher-agent"
+  account_id   = "zone-watcher-agent-${var.environment}"
   display_name = "Zone Watcher Service Account"
 }
 
@@ -147,9 +147,11 @@ resource "google_project_iam_member" "zone-watcher-agent-token-user" {
   member  = google_service_account.zone-watcher-agent.member
 }
 
+
+
 # zone-watcher cloud function
 resource "google_cloudfunctions2_function" "zone-watcher" {
-  name        = "zone-watcher"
+  name        = "zone-watcher-${var.environment}"
   location    = var.region
   description = "zone watcher function"
 
@@ -169,11 +171,11 @@ resource "google_cloudfunctions2_function" "zone-watcher" {
     available_memory   = "256M"
     timeout_seconds    = 60
     environment_variables = {
-      GOOGLE_CLOUD_PROJECT = var.project,
-      CONFIG_CSV = "gs://${google_storage_bucket.gdce-cluster-provisioner-bucket.name}/${google_storage_bucket_object.cluster-intent-registry.output_name}",
-      CB_TRIGGER_NAME = "gdce-cluster-provisioner-trigger"
-      REGION = var.region
-      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = "staging-edgecontainer.sandbox.googleapis.com"
+      GOOGLE_CLOUD_PROJECT                 = var.project,
+      CONFIG_CSV                           = "gs://${google_storage_bucket.gdce-cluster-provisioner-bucket.name}/${google_storage_bucket_object.cluster-intent-registry.output_name}",
+      CB_TRIGGER_NAME                      = "gdce-cluster-provisioner-trigger-${var.environment}"
+      REGION                               = var.region
+      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = coalesce(var.edge_container_api_endpoint_override,"")
     }
     service_account_email = google_service_account.zone-watcher-agent.email
   }
@@ -188,12 +190,12 @@ resource "google_cloud_run_service_iam_member" "member" {
 }
 
 resource "google_cloud_scheduler_job" "job" {
-  name             = "zone-watcher-scheduler"
+  name             = "zone-watcher-scheduler-${var.environment}"
   description      = "Trigger the ${google_cloudfunctions2_function.zone-watcher.name}"
-  schedule         = "0 0 1 * *"  # TBC
-  time_zone        = "Europe/Dublin"  # TBC
-  attempt_deadline = "320s"  # TBC
-  region = var.region
+  schedule         = "0 0 1 * *"     # TBC
+  time_zone        = "Europe/Dublin" # TBC
+  attempt_deadline = "320s"          # TBC
+  region           = var.region
 
   http_target {
     http_method = "POST"

@@ -7,6 +7,8 @@ This solution automatically provisions GDCE clusters as zones are turned up. Thi
 Deploy Cloudbuild and GCS resources
 
 ```
+#terraform init -backend-config=env/prod.gcs.tfbackend 
+terraform init -backend-config=env/staging.gcs.tfbackend   
 terraform plan
 terraform apply
 ```
