@@ -30,7 +30,7 @@ def zone_watcher(req: flask.Request):
     if cb_trigger is None:
         raise Exception('missing CB_TRIGGER_NAME (projects/<project-id>/locations/<location>/triggers/<trigger-name>)')
 
-    log_lvl = logging.DEBUG if os.environ.get("LOG_LEVEL").lower() == 'debug' else logging.INFO
+    log_lvl = logging.DEBUG if os.environ.get("LOG_LEVEL") is not None and os.environ.get("LOG_LEVEL").lower() == 'debug' else logging.INFO
 
     # set log level, default is INFO, unless has {debug: true} in request
     logger = logging.getLogger()

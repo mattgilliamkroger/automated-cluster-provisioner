@@ -50,7 +50,7 @@ module "gcloud" {
        --name=gdce-cluster-provisioner-trigger-${var.environment} \
        --inline-config=create-cluster.yaml \
        --region=${var.region} \
-       --service-account=projects/${var.project}/serviceAccounts/gdce-provisioning-agent-${var.environment}@${var.project}.iam.gserviceaccount.com
+       --service-account=projects/${var.project}/serviceAccounts/${google_service_account.gdce-provisioning-agent.email}
    EOL
   destroy_cmd_entrypoint = "gcloud"
   destroy_cmd_body       = "alpha builds triggers delete gdce-cluster-provisioner-trigger-${var.environment} --region ${var.region}"
@@ -109,7 +109,7 @@ resource "google_project_iam_member" "es-agent-secret-accessor" {
 data "archive_file" "zone-watcher" {
   type        = "zip"
   output_path = "/tmp/zone_watcher_gcf.zip"
-  source_dir  = "./zone-watcher/cloud_function_source/"
+  source_dir  = "../zone-watcher/cloud_function_source/"
 }
 
 resource "google_storage_bucket_object" "zone-watcher-src" {
@@ -175,7 +175,7 @@ resource "google_cloudfunctions2_function" "zone-watcher" {
       CONFIG_CSV                           = "gs://${google_storage_bucket.gdce-cluster-provisioner-bucket.name}/${google_storage_bucket_object.cluster-intent-registry.output_name}",
       CB_TRIGGER_NAME                      = "gdce-cluster-provisioner-trigger-${var.environment}"
       REGION                               = var.region
-      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = coalesce(var.edge_container_api_endpoint_override,"")
+      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = var.edge_container_api_endpoint_override
     }
     service_account_email = google_service_account.zone-watcher-agent.email
   }
@@ -192,9 +192,9 @@ resource "google_cloud_run_service_iam_member" "member" {
 resource "google_cloud_scheduler_job" "job" {
   name             = "zone-watcher-scheduler-${var.environment}"
   description      = "Trigger the ${google_cloudfunctions2_function.zone-watcher.name}"
-  schedule         = "0 0 1 * *"     # TBC
-  time_zone        = "Europe/Dublin" # TBC
-  attempt_deadline = "320s"          # TBC
+  schedule         = "0 * * * *"     # Run every hour
+  time_zone        = "Europe/Dublin"
+  attempt_deadline = "320s"
   region           = var.region
 
   http_target {
