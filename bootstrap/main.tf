@@ -50,7 +50,8 @@ module "gcloud" {
        --name=gdce-cluster-provisioner-trigger-${var.environment} \
        --inline-config=create-cluster.yaml \
        --region=${var.region} \
-       --service-account=projects/${var.project}/serviceAccounts/${google_service_account.gdce-provisioning-agent.email}
+       --service-account=projects/${var.project}/serviceAccounts/${google_service_account.gdce-provisioning-agent.email} \
+       --substitutions _EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=${var.edge_container_api_endpoint_override},_GKEHUB_API_ENDPOINT_OVERRIDE=${var.gke_hub_api_endpoint_override},_CLUSTER_INTENT_BUCKET=${google_storage_bucket.gdce-cluster-provisioner-bucket.name}
    EOL
   destroy_cmd_entrypoint = "gcloud"
   destroy_cmd_body       = "alpha builds triggers delete gdce-cluster-provisioner-trigger-${var.environment} --region ${var.region}"
@@ -180,7 +181,6 @@ resource "google_cloudfunctions2_function" "zone-watcher" {
     service_account_email = google_service_account.zone-watcher-agent.email
   }
 }
-
 
 resource "google_cloud_run_service_iam_member" "member" {
   location = google_cloudfunctions2_function.zone-watcher.location

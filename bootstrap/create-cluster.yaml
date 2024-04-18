@@ -9,30 +9,35 @@ steps:
     apt-get install -y gettext-base
     apt-get install -y csvtool
 
-    gsutil cp gs://gdce-cluster-provisioner-bucket/cluster-intent-registry.csv .
+    gsutil cp gs://$CLUSTER_INTENT_BUCKET/cluster-intent-registry.csv .
 
-    export CLUSTER_INTENT=$(awk -F , "\$1 == \"$NODE_LOCATION\" || \$1 == \"\\\"$NODE_LOCATION\\\"\"" cluster-intent-registry.csv)
+    export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$NODE_LOCATION\" || \$1 == \"\\\"$NODE_LOCATION\\\"\"" cluster-intent-registry.csv)
 
-    echo $CLUSTER_INTENT
+    echo $CLUSTER_INTENT_ROW
 
-    if [ -z "$CLUSTER_INTENT" ]; then
+    if [ -z "$CLUSTER_INTENT_ROW" ]; then
       echo "Cluster intent not found for $NODE_LOCATION"
       exit 1
     fi
 
+    export CLUSTER_INTENT_HEADER=$(head -1 cluster-intent-registry.csv)
+    export CLUSTER_INTENT="$CLUSTER_INTENT_HEADER"$'\n'"$CLUSTER_INTENT_ROW"
+
     # Set parameters from cluster intent
-    export NODE_LOCATION=$(echo $CLUSTER_INTENT | csvtool col 1 -)
-    export MACHINE_PROJECT_ID=$(echo $CLUSTER_INTENT | csvtool col 2 -)
-    export FLEET_PROJECT_ID=$(echo $CLUSTER_INTENT | csvtool col 3 -)
-    export CLUSTER_NAME=$(echo $CLUSTER_INTENT | csvtool col 4 -)
-    export LOCATION=$(echo $CLUSTER_INTENT | csvtool col 5 -)
-    export NODE_COUNT=$(echo $CLUSTER_INTENT | csvtool col 6 -)
-    export EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS=$(echo $CLUSTER_INTENT | csvtool col 7 -)
-    export SYNC_REPO=$(echo $CLUSTER_INTENT | csvtool col 8 -)
-    export SYNC_BRANCH=$(echo $CLUSTER_INTENT | csvtool col 9 -)
-    export SYNC_DIR=$(echo $CLUSTER_INTENT | csvtool col 10 -)
-    export GIT_TOKEN_SECRETS_MANAGER_NAME=$(echo $CLUSTER_INTENT | csvtool col 11 -)
-    export ES_AGENT_SECRETS_MANAGER_NAME=$(echo $CLUSTER_INTENT | csvtool col 12 -)
+    export NODE_LOCATION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "NODE_LOCATION" - | csvtool drop 1 -)
+    export MACHINE_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MACHINE_PROJECT_ID" - | csvtool drop 1 -)
+    export FLEET_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "FLEET_PROJECT_ID" - | csvtool drop 1 -)
+    export CLUSTER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "CLUSTER_NAME" - | csvtool drop 1 -)
+    export LOCATION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "LOCATION" - | csvtool drop 1 -)
+    export NODE_COUNT=$(echo "$CLUSTER_INTENT" | csvtool namedcol "NODE_COUNT" - | csvtool drop 1 -)
+    export EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS=$(echo "$CLUSTER_INTENT" | csvtool namedcol "EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS" - | csvtool drop 1 -)
+    export SYNC_REPO=$(echo "$CLUSTER_INTENT" | csvtool namedcol "SYNC_REPO" - | csvtool drop 1 -)
+    export SYNC_BRANCH=$(echo "$CLUSTER_INTENT" | csvtool namedcol "SYNC_BRANCH" - | csvtool drop 1 -)
+    export SYNC_DIR=$(echo "$CLUSTER_INTENT" | csvtool namedcol "SYNC_DIR" - | csvtool drop 1 -)
+    export GIT_TOKEN_SECRETS_MANAGER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "GIT_TOKEN_SECRETS_MANAGER_NAME" - | csvtool drop 1 -)
+    export ES_AGENT_SECRETS_MANAGER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "ES_AGENT_SECRETS_MANAGER_NAME" - | csvtool drop 1 -)
+    export CLUSTER_VERSION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "CLUSTER_VERSION" - | csvtool drop 1 -)
+
 
     if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
@@ -58,7 +63,8 @@ steps:
           --control-plane-shared-deployment-policy=ALLOWED \
           --location=$LOCATION \
           --project=$FLEET_PROJECT_ID \
-          --release-channel=NONE
+          --release-channel=NONE \
+          --version $CLUSTER_VERSION
 
       if [ $? -ne 0 ]; then
         echo "Cluster creation failed"
@@ -69,8 +75,8 @@ steps:
     export KUBECONFIG="$(pwd)/gateway-kubeconfig"
     gcloud container fleet memberships get-credentials $CLUSTER_NAME
 
-    gsutil cp gs://gdce-cluster-provisioner-bucket/apply-spec.yaml.template .
-    gsutil cp gs://gdce-cluster-provisioner-bucket/cluster-secret-store.yaml.template .
+    gsutil cp gs://$CLUSTER_INTENT_BUCKET/apply-spec.yaml.template .
+    gsutil cp gs://$CLUSTER_INTENT_BUCKET/cluster-secret-store.yaml.template .
 
     envsubst < apply-spec.yaml.template > apply-spec.yaml
     envsubst < cluster-secret-store.yaml.template > cluster-secret-store.yaml
@@ -85,6 +91,7 @@ steps:
     sleep 30
 
     gcloud secrets versions access latest --secret=$ES_AGENT_SECRETS_MANAGER_NAME >> $(pwd)/es-agent.json
+    kubectl create ns external-secrets --dry-run=client -o yaml | kubectl apply -f -
     kubectl create secret generic gcp-store-creds --from-file=$(pwd)/es-agent.json -n external-secrets
 
     # Wait for external secrets CRD before applying ClusterSecretStore
@@ -95,10 +102,11 @@ steps:
   - 'NODE_LOCATION=$_NODE_LOCATION'
   - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
   - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'
-   
+  - 'CLUSTER_INTENT_BUCKET=$_CLUSTER_INTENT_BUCKET'
+
+timeout: 14400s
 options:
   logging: CLOUD_LOGGING_ONLY
-serviceAccount: projects/gmec-developers-1/serviceAccounts/gdce-provisioning-agent@gmec-developers-1.iam.gserviceaccount.com
 substitutions:
   _NODE_LOCATION: "us-central1-edge-den25349"
   _GKEHUB_API_ENDPOINT_OVERRIDE: "https://staging-edgecontainer.sandbox.googleapis.com/"

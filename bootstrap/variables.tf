@@ -28,6 +28,7 @@ variable "gcp_project_services" {
       "gkehub.googleapis.com",
       "gkeonprem.googleapis.com",
       "iam.googleapis.com",
+      "iamcredentials.googleapis.com",
       "logging.googleapis.com",
       "monitoring.googleapis.com",
       "opsconfigmonitoring.googleapis.com",
@@ -46,6 +47,11 @@ variable "environment" {
 }
 
 variable "edge_container_api_endpoint_override" {
+  description = "Google Distributed Cloud Edge API"
+  default     = ""
+}
+
+variable "gke_hub_api_endpoint_override" {
   description = "Google Distributed Cloud Edge API"
   default     = ""
 }

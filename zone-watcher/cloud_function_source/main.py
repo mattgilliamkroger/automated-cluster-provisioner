@@ -5,6 +5,7 @@ import io
 import flask
 import csv
 import logging
+from urllib.parse import urlparse
 from google.api_core import client_options
 from google.cloud import edgecontainer
 from google.cloud import storage
@@ -30,16 +31,10 @@ def zone_watcher(req: flask.Request):
     if cb_trigger is None:
         raise Exception('missing CB_TRIGGER_NAME (projects/<project-id>/locations/<location>/triggers/<trigger-name>)')
 
-    log_lvl = logging.DEBUG if os.environ.get("LOG_LEVEL") is not None and os.environ.get("LOG_LEVEL").lower() == 'debug' else logging.INFO
-
-    # set log level, default is INFO, unless has {debug: true} in request
     logger = logging.getLogger()
-    logging.basicConfig(stream=sys.stdout, level=log_lvl)
+    logging.basicConfig(stream=sys.stdout, level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
-    logger.info(f'proj_id = {proj_id}')
-    logger.info(f'gcs_config_uri = {gcs_config_uri}')
-    logger.info(f'cb_trigger = {cb_trigger}')
-    logger.debug(f'log_lvl = {log_lvl}')
+    logger.info(f'Running zone watcher for: proj_id={proj_id}, gcs_config_uri={gcs_config_uri}, cb_trigger={cb_trigger}')
 
     # Get the CSV file from GCS containing target zones
     # NODE_LOCATION	MACHINE_PROJECT_ID	FLEET_PROJECT_ID	CLUSTER_NAME	LOCATION	NODE_COUNT	EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS	SYNC_REPO	SYNC_BRANCH	SYNC_DIR	GIT_TOKEN_SECRETS_MANAGER_NAME
@@ -62,8 +57,8 @@ def zone_watcher(req: flask.Request):
 
     edgecontainer_api_endpoint_override = os.environ.get("EDGE_CONTAINER_API_ENDPOINT_OVERRIDE")
 
-    if edgecontainer_api_endpoint_override is not None:
-        op = client_options.ClientOptions(api_endpoint=edgecontainer_api_endpoint_override)
+    if edgecontainer_api_endpoint_override is not None and edgecontainer_api_endpoint_override != "":
+        op = client_options.ClientOptions(api_endpoint=urlparse(edgecontainer_api_endpoint_override).netloc)
         ec_client = edgecontainer.EdgeContainerClient(client_options=op)
     else:  # use the default prod endpoint
         ec_client = edgecontainer.EdgeContainerClient()
@@ -119,5 +114,7 @@ def zone_watcher(req: flask.Request):
                 logger.error(err)
 
             count += len(config_zone_info[loc])
+
+    logger.info(f'total zones triggered = {count}')
 
     return f'total zones triggered = {count}'
