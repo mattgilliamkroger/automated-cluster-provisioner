@@ -119,6 +119,18 @@ resource "google_storage_bucket_object" "zone-watcher-src" {
   source = data.archive_file.zone-watcher.output_path # Add path to the zipped function source code
 }
 
+data "archive_file" "cluster-watcher" {
+  type        = "zip"
+  output_path = "/tmp/cluster_watcher_gcf.zip"
+  source_dir  = "../cluster-watcher/cloud_function_source/"
+}
+
+resource "google_storage_bucket_object" "cluster-watcher-src" {
+  name   = "cluster_watcher_gcf.zip"
+  bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
+  source = data.archive_file.cluster-watcher.output_path # Add path to the zipped function source code
+}
+
 resource "google_service_account" "zone-watcher-agent" {
   account_id   = "zone-watcher-agent-${var.environment}"
   display_name = "Zone Watcher Service Account"
@@ -148,7 +160,11 @@ resource "google_project_iam_member" "zone-watcher-agent-token-user" {
   member  = google_service_account.zone-watcher-agent.member
 }
 
-
+resource "google_project_iam_member" "zone-watcher-agent-edge-viewer" {
+  project = var.project
+  role    = "roles/edgecontainer.viewer"
+  member  = google_service_account.gdce-provisioning-agent.member
+}
 
 # zone-watcher cloud function
 resource "google_cloudfunctions2_function" "zone-watcher" {
@@ -200,6 +216,63 @@ resource "google_cloud_scheduler_job" "job" {
   http_target {
     http_method = "POST"
     uri         = google_cloudfunctions2_function.zone-watcher.service_config[0].uri
+
+    oidc_token {
+      service_account_email = google_service_account.gdce-provisioning-agent.email
+    }
+  }
+}
+
+# Cluster Watcher cloud function
+resource "google_cloudfunctions2_function" "cluster-watcher" {
+  name        = "cluster-watcher-${var.environment}"
+  location    = var.region
+  description = "cluster watcher function"
+
+  build_config {
+    runtime     = "python312"
+    entry_point = "cluster_watcher" # Set the entry point
+    source {
+      storage_source {
+        bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
+        object = google_storage_bucket_object.cluster-watcher-src.name
+      }
+    }
+  }
+
+  service_config {
+    max_instance_count = 1
+    available_memory   = "256M"
+    timeout_seconds    = 60
+    environment_variables = {
+      GOOGLE_CLOUD_PROJECT                 = var.project,
+      CONFIG_CSV                           = "gs://${google_storage_bucket.gdce-cluster-provisioner-bucket.name}/${google_storage_bucket_object.cluster-intent-registry.output_name}",
+      CB_TRIGGER_NAME                      = "gdce-cluster-provisioner-trigger-${var.environment}"
+      REGION                               = var.region
+      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = var.edge_container_api_endpoint_override
+    }
+    service_account_email = google_service_account.zone-watcher-agent.email
+  }
+}
+
+resource "google_cloud_run_service_iam_member" "cluster-watcher-member" {
+  location = google_cloudfunctions2_function.cluster-watcher.location
+  service  = google_cloudfunctions2_function.cluster-watcher.name
+  role     = "roles/run.invoker"
+  member   = google_service_account.gdce-provisioning-agent.member
+}
+
+resource "google_cloud_scheduler_job" "cluster-watcher-job" {
+  name             = "cluster-watcher-scheduler-${var.environment}"
+  description      = "Trigger the ${google_cloudfunctions2_function.cluster-watcher.name}"
+  schedule         = "0 */2 * * *"     # Run every 2 hours
+  time_zone        = "Europe/Dublin"
+  attempt_deadline = "320s"
+  region           = var.region
+
+  http_target {
+    http_method = "POST"
+    uri         = google_cloudfunctions2_function.cluster-watcher.service_config[0].uri
 
     oidc_token {
       service_account_email = google_service_account.gdce-provisioning-agent.email

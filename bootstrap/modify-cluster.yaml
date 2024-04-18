@@ -1,0 +1,72 @@
+steps:
+
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: Read cluster intent and update cluster
+  script: |
+    #!/usr/bin/env bash
+    set -x
+    apt-get update
+    apt-get install -y gettext-base
+    apt-get install -y csvtool
+
+    gsutil cp gs://$CLUSTER_INTENT_BUCKET/cluster-intent-registry.csv .
+
+    export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$NODE_LOCATION\" || \$1 == \"\\\"$NODE_LOCATION\\\"\"" cluster-intent-registry.csv)
+
+    echo $CLUSTER_INTENT_ROW
+
+    if [ -z "$CLUSTER_INTENT_ROW" ]; then
+      echo "Cluster intent not found for $NODE_LOCATION"
+      exit 1
+    fi
+
+    export CLUSTER_INTENT_HEADER=$(head -1 cluster-intent-registry.csv)
+    export CLUSTER_INTENT="$CLUSTER_INTENT_HEADER"$'\n'"$CLUSTER_INTENT_ROW"
+
+    # Set parameters from cluster intent
+    export NODE_LOCATION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "NODE_LOCATION" - | csvtool drop 1 -)
+    export MACHINE_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MACHINE_PROJECT_ID" - | csvtool drop 1 -)
+    export FLEET_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "FLEET_PROJECT_ID" - | csvtool drop 1 -)
+    export CLUSTER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "CLUSTER_NAME" - | csvtool drop 1 -)
+    export LOCATION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "LOCATION" - | csvtool drop 1 -)
+    export MAINTENANCE_WINDOW_START=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MAINTENANCE_WINDOW_START" - | csvtool drop 1 -)
+    export MAINTENANCE_WINDOW_END=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MAINTENANCE_WINDOW_END" - | csvtool drop 1 -)
+    export MAINTENANCE_WINDOW_RECURRENCE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MAINTENANCE_WINDOW_RECURRENCE" - | csvtool drop 1 -)
+
+    if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
+      echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
+      gcloud config set api_endpoint_overrides/edgecontainer $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE
+    fi
+
+    if [ -n "${GKEHUB_API_ENDPOINT_OVERRIDE:-}" ]; then
+      echo "Setting api_endpoint_overrides/gkehub to $GKEHUB_API_ENDPOINT_OVERRIDE"
+      gcloud config set api_endpoint_overrides/gkehub $GKEHUB_API_ENDPOINT_OVERRIDE
+    fi
+
+    gcloud edge-cloud container clusters update $CLUSTER_NAME \
+        --project=$FLEET_PROJECT_ID \
+        --location=$LOCATION \
+        --maintenance-window-start=$MAINTENANCE_WINDOW_START \
+        --maintenance-window-end=$MAINTENANCE_WINDOW_END \
+        --maintenance-window-recurrence=$MAINTENANCE_WINDOW_RECURRENCE
+
+    gcloud edge-cloud container clusters describe $CLUSTER_NAME --location $LOCATION
+
+    if [ $? -ne 0 ]; then
+      echo "Maintenance window update failed"
+      exit 1
+    fi
+
+  env:
+  - 'NODE_LOCATION=$_NODE_LOCATION'
+  - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
+  - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'
+  - 'CLUSTER_INTENT_BUCKET=$_CLUSTER_INTENT_BUCKET'
+
+timeout: 14400s
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _NODE_LOCATION: "us-central1-edge-den25349"
+  _GKEHUB_API_ENDPOINT_OVERRIDE: "https://staging-edgecontainer.sandbox.googleapis.com/"
+  _EDGE_CONTAINER_API_ENDPOINT_OVERRIDE: "https://staging-edgecontainer.sandbox.googleapis.com/"
