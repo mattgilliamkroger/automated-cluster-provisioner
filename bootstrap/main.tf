@@ -208,7 +208,7 @@ resource "google_cloud_run_service_iam_member" "member" {
 resource "google_cloud_scheduler_job" "job" {
   name             = "zone-watcher-scheduler-${var.environment}"
   description      = "Trigger the ${google_cloudfunctions2_function.zone-watcher.name}"
-  schedule         = "0 * * * *"     # Run every hour
+  schedule         = "0 * * * *" # Run every hour
   time_zone        = "Europe/Dublin"
   attempt_deadline = "320s"
   region           = var.region
@@ -265,7 +265,7 @@ resource "google_cloud_run_service_iam_member" "cluster-watcher-member" {
 resource "google_cloud_scheduler_job" "cluster-watcher-job" {
   name             = "cluster-watcher-scheduler-${var.environment}"
   description      = "Trigger the ${google_cloudfunctions2_function.cluster-watcher.name}"
-  schedule         = "0 */2 * * *"     # Run every 2 hours
+  schedule         = "0 */2 * * *" # Run every 2 hours
   time_zone        = "Europe/Dublin"
   attempt_deadline = "320s"
   region           = var.region
