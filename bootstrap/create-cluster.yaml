@@ -87,8 +87,8 @@ steps:
 
     gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME --config=./apply-spec.yaml
 
-    # TODO(bfogel) - Query against configsync status before proceeding, for now a 30 second sleep is enough for CRDs to deploy.
-    sleep 30
+    # TODO(bfogel) - Query against configsync status before proceeding, for now a 60 second sleep is enough for CRDs to deploy.
+    sleep 60
 
     gcloud secrets versions access latest --secret=$ES_AGENT_SECRETS_MANAGER_NAME >> $(pwd)/es-agent.json
     kubectl create ns external-secrets --dry-run=client -o yaml | kubectl apply -f -

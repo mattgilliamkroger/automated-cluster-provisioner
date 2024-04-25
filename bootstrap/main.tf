@@ -32,7 +32,7 @@ resource "google_storage_bucket_object" "apply-spec" {
 
 resource "google_storage_bucket_object" "cluster-secret-store" {
   name         = "cluster-secret-store.yaml.template"
-  source       = "./cluster-secret-store.yaml"
+  source       = "./cluster-secret-store.yaml.template"
   content_type = "text/plain"
   bucket       = google_storage_bucket.gdce-cluster-provisioner-bucket.id
 }
@@ -195,7 +195,10 @@ resource "google_cloudfunctions2_function" "zone-watcher" {
 
   build_config {
     runtime     = "python312"
-    entry_point = "zone_watcher" # Set the entry point
+    entry_point = "zone_watcher"
+    environment_variables = {
+      "SOURCE_SHA" = data.archive_file.zone-watcher.output_sha # https://github.com/hashicorp/terraform-provider-google/issues/1938
+    }
     source {
       storage_source {
         bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
@@ -252,7 +255,10 @@ resource "google_cloudfunctions2_function" "cluster-watcher" {
 
   build_config {
     runtime     = "python312"
-    entry_point = "cluster_watcher" # Set the entry point
+    entry_point = "cluster_watcher"
+    environment_variables = {
+      "SOURCE_SHA" = data.archive_file.cluster-watcher.output_sha # https://github.com/hashicorp/terraform-provider-google/issues/1938
+    }
     source {
       storage_source {
         bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
