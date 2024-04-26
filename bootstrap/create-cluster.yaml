@@ -103,11 +103,6 @@ steps:
   - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
   - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'
   - 'CLUSTER_INTENT_BUCKET=$_CLUSTER_INTENT_BUCKET'
-
 timeout: 14400s
 options:
   logging: CLOUD_LOGGING_ONLY
-substitutions:
-  _NODE_LOCATION: "us-central1-edge-den25349"
-  _GKEHUB_API_ENDPOINT_OVERRIDE: "https://staging-edgecontainer.sandbox.googleapis.com/"
-  _EDGE_CONTAINER_API_ENDPOINT_OVERRIDE: "https://staging-edgecontainer.sandbox.googleapis.com/"

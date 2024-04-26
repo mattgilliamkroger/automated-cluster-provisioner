@@ -1,3 +1,8 @@
+variable "node_location" {
+  description = "default GDCE zone used by CloudBuild"
+  type        = string
+}
+
 variable "project" {
   description = "GCP project name"
   default     = "cloud-alchemists-sandbox"
@@ -48,10 +53,10 @@ variable "environment" {
 
 variable "edge_container_api_endpoint_override" {
   description = "Google Distributed Cloud Edge API"
-  default     = ""
+  default     = "https://staging-edgecontainer.sandbox.googleapis.com/"
 }
 
 variable "gke_hub_api_endpoint_override" {
   description = "Google Distributed Cloud Edge API"
-  default     = ""
+  default     = "https://staging-gkehub.sandbox.googleapis.com/"
 }

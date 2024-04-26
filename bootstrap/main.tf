@@ -1,3 +1,13 @@
+locals {
+  cloud_build_inline = yamldecode(file("create-cluster.yaml"))
+  cloud_build_substitions = merge(
+    { _CLUSTER_INTENT_BUCKET = google_storage_bucket.gdce-cluster-provisioner-bucket.name},
+    { _NODE_LOCATION = var.node_location },
+    var.edge_container_api_endpoint_override != "" ? { _EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = var.edge_container_api_endpoint_override } : {},
+    var.gke_hub_api_endpoint_override != "" ? { _GKEHUB_API_ENDPOINT_OVERRIDE = var.gke_hub_api_endpoint_override } : {},
+  )
+}
+
 resource "google_project_service" "project" {
   for_each = toset(var.gcp_project_services)
   service  = each.value
@@ -34,27 +44,38 @@ resource "google_storage_bucket_object" "cluster-intent-registry" {
   bucket       = google_storage_bucket.gdce-cluster-provisioner-bucket.id
 }
 
+resource "google_cloudbuild_trigger" "main" {
+  location        = var.region
+  name            = "gdce-cluster-provisioner-trigger-${var.environment}"
+  service_account = "projects/${var.project}/serviceAccounts/${google_service_account.gdce-provisioning-agent.email}"
+  substitutions = local.cloud_build_substitions
 
-// Not using google_cloudbuild_trigger resource due to missing 
-// `automapSubstitutions` options and inline-config
-module "gcloud" {
-  source  = "terraform-google-modules/gcloud/google"
-  version = "~> 3.4"
+  build {
+    substitutions = local.cloud_build_substitions
+    timeout       = try(local.cloud_build_inline["timeout"], "3600s")
 
-  platform              = "linux"
-  additional_components = ["alpha"]
+    options {
+      logging = try(local.cloud_build_inline["options"]["logging"], null)
+    }
 
-  create_cmd_entrypoint  = "gcloud"
-  create_cmd_body        = <<EOL
-     alpha builds triggers create manual \
-       --name=gdce-cluster-provisioner-trigger-${var.environment} \
-       --inline-config=create-cluster.yaml \
-       --region=${var.region} \
-       --service-account=projects/${var.project}/serviceAccounts/${google_service_account.gdce-provisioning-agent.email} \
-       --substitutions _EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=${var.edge_container_api_endpoint_override},_GKEHUB_API_ENDPOINT_OVERRIDE=${var.gke_hub_api_endpoint_override},_CLUSTER_INTENT_BUCKET=${google_storage_bucket.gdce-cluster-provisioner-bucket.name}
-   EOL
-  destroy_cmd_entrypoint = "gcloud"
-  destroy_cmd_body       = "alpha builds triggers delete gdce-cluster-provisioner-trigger-${var.environment} --region ${var.region}"
+    dynamic "step" {
+      for_each = try(local.cloud_build_inline["steps"], [])
+      content {
+        env    = try(step.value.env, [])
+        id     = try(step.value.id, null)
+        name   = try(step.value.name, null)
+        script = try(step.value.script, null)
+      }
+    }
+  }
+
+  # workaround to create manual trigger: https://github.com/hashicorp/terraform-provider-google/issues/16295
+  webhook_config {
+    secret = ""
+  }
+  lifecycle {
+    ignore_changes = [webhook_config]
+  }
 }
 
 resource "google_service_account" "gdce-provisioning-agent" {
