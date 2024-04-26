@@ -32,6 +32,7 @@ steps:
     export MAINTENANCE_WINDOW_START=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MAINTENANCE_WINDOW_START" - | csvtool drop 1 -)
     export MAINTENANCE_WINDOW_END=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MAINTENANCE_WINDOW_END" - | csvtool drop 1 -)
     export MAINTENANCE_WINDOW_RECURRENCE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MAINTENANCE_WINDOW_RECURRENCE" - | csvtool drop 1 -)
+    export SUBNET_VLANS=$(echo "$CLUSTER_INTENT" | csvtool namedcol "SUBNET_VLANS" - | csvtool drop 1 - | tr -d '"')
 
     if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
@@ -43,6 +44,11 @@ steps:
       gcloud config set api_endpoint_overrides/gkehub $GKEHUB_API_ENDPOINT_OVERRIDE
     fi
 
+    if [ -n "${EDGE_NETWORK_API_ENDPOINT_OVERRIDE:-}" ]; then
+      echo "Setting api_endpoint_overrides/edgenetwork to $EDGE_NETWORK_API_ENDPOINT_OVERRIDE"
+      gcloud config set api_endpoint_overrides/edgenetwork $EDGE_NETWORK_API_ENDPOINT_OVERRIDE
+    fi
+
     gcloud edge-cloud container clusters update $CLUSTER_NAME \
         --project=$FLEET_PROJECT_ID \
         --location=$LOCATION \
@@ -50,16 +56,43 @@ steps:
         --maintenance-window-end=$MAINTENANCE_WINDOW_END \
         --maintenance-window-recurrence=$MAINTENANCE_WINDOW_RECURRENCE
 
-    gcloud edge-cloud container clusters describe $CLUSTER_NAME --location $LOCATION
-
     if [ $? -ne 0 ]; then
       echo "Maintenance window update failed"
       exit 1
     fi
 
+    for vlan in $(echo $SUBNET_VLANS | csvtool transpose -);
+
+    do
+      EXISTING_VLAN=$(gcloud edge-cloud networking subnets list --location $LOCATION --zone $NODE_LOCATION --project $MACHINE_PROJECT_ID --filter="VLANID=$vlan" --format="json")
+
+      if [ $? -ne 0 ]; then
+        echo "Unable to query for subnets"
+        exit 1
+      fi
+
+      if [ "$EXISTING_VLAN" = "[]" ]; then
+        gcloud edge-cloud networking subnets create "$vlan-network" \
+          --network=default \
+          --location=$LOCATION \
+          --zone=$NODE_LOCATION \
+          --project $MACHINE_PROJECT_ID 
+
+        if [ $? -ne 0 ]; then
+          echo "Subnet creation failed"
+          exit 1
+        fi
+      else
+        echo "VLAN $vlan already exists"
+      fi
+    done
+
+    echo "Completed reconciling $NODE_LOCATION"
+
   env:
   - 'NODE_LOCATION=$_NODE_LOCATION'
   - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
+  - 'EDGE_NETWORK_API_ENDPOINT_OVERRIDE=$_EDGE_NETWORK_API_ENDPOINT_OVERRIDE'
   - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'
   - 'CLUSTER_INTENT_BUCKET=$_CLUSTER_INTENT_BUCKET'
 
