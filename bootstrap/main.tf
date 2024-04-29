@@ -2,22 +2,45 @@ locals {
   cloud_build_inline_create_cluster = yamldecode(file("create-cluster.yaml"))
   cloud_build_inline_modify_cluster = yamldecode(file("modify-cluster.yaml"))
   cloud_build_substitions = merge(
-    { _CLUSTER_INTENT_BUCKET = google_storage_bucket.gdce-cluster-provisioner-bucket.name},
+    { _CLUSTER_INTENT_BUCKET = google_storage_bucket.gdce-cluster-provisioner-bucket.name },
+    { _NODE_LOCATION = var.node_location },
     var.edge_container_api_endpoint_override != "" ? { _EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = var.edge_container_api_endpoint_override } : {},
     var.edge_network_api_endpoint_override != "" ? { _EDGE_NETWORK_API_ENDPOINT_OVERRIDE = var.edge_network_api_endpoint_override } : {},
     var.gke_hub_api_endpoint_override != "" ? { _GKEHUB_API_ENDPOINT_OVERRIDE = var.gke_hub_api_endpoint_override } : {},
   )
+  project_id_fleet   = coalesce(var.project_id_fleet, var.project_id)
+  project_id_secrets = coalesce(var.project_id_secrets, var.project_id)
+}
+
+resource "random_id" "main" {
+  byte_length = 8
 }
 
 resource "google_project_service" "project" {
-  for_each = toset(var.gcp_project_services)
+  for_each = toset(var.project_services)
+  service  = each.value
+
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "project_fleet" {
+  for_each = toset(var.project_services_fleet)
+  project  = local.project_id_fleet
+  service  = each.value
+
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "project_secrets" {
+  for_each = toset(var.project_services_secrets)
+  project  = local.project_id_secrets
   service  = each.value
 
   disable_on_destroy = false
 }
 
 resource "google_storage_bucket" "gdce-cluster-provisioner-bucket" {
-  name          = "gdce-cluster-provisioner-bucket-${var.environment}"
+  name          = "gdce-cluster-provisioner-bucket-${var.environment}-${random_id.main.hex}"
   location      = "US"
   storage_class = "STANDARD"
 
@@ -48,8 +71,8 @@ resource "google_storage_bucket_object" "cluster-intent-registry" {
 resource "google_cloudbuild_trigger" "create-cluster" {
   location        = var.region
   name            = "gdce-cluster-provisioner-trigger-${var.environment}"
-  service_account = "projects/${var.project}/serviceAccounts/${google_service_account.gdce-provisioning-agent.email}"
-  substitutions = local.cloud_build_substitions
+  service_account = "projects/${var.project_id}/serviceAccounts/${google_service_account.gdce-provisioning-agent.email}"
+  substitutions   = local.cloud_build_substitions
 
   build {
     substitutions = local.cloud_build_substitions
@@ -82,7 +105,7 @@ resource "google_cloudbuild_trigger" "create-cluster" {
 resource "google_cloudbuild_trigger" "modify-cluster" {
   location        = var.region
   name            = "gdce-cluster-reconciler-trigger-${var.environment}"
-  service_account = "projects/${var.project}/serviceAccounts/${google_service_account.gdce-provisioning-agent.email}"
+  service_account = "projects/${var.project_id}/serviceAccounts/${google_service_account.gdce-provisioning-agent.email}"
   substitutions = local.cloud_build_substitions
 
   build {
@@ -130,37 +153,37 @@ resource "google_service_account" "gdce-provisioning-agent" {
 }
 
 resource "google_project_iam_member" "gdce-provisioning-agent-edge-admin" {
-  project = var.project
+  project = local.project_id_fleet
   role    = "roles/edgecontainer.admin"
   member  = google_service_account.gdce-provisioning-agent.member
 }
 
 resource "google_project_iam_member" "gdce-provisioning-agent-storage-admin" {
-  project = var.project
+  project = var.project_id
   role    = "roles/storage.admin"
   member  = google_service_account.gdce-provisioning-agent.member
 }
 
 resource "google_project_iam_member" "gdce-provisioning-agent-log-writer" {
-  project = var.project
+  project = var.project_id
   role    = "roles/logging.logWriter"
   member  = google_service_account.gdce-provisioning-agent.member
 }
 
 resource "google_project_iam_member" "gdce-provisioning-agent-secret-accessor" {
-  project = var.project
+  project = local.project_id_secrets
   role    = "roles/secretmanager.secretAccessor"
   member  = google_service_account.gdce-provisioning-agent.member
 }
 
 resource "google_project_iam_member" "gdce-provisioning-agent-hub-admin" {
-  project = var.project
+  project = local.project_id_fleet
   role    = "roles/gkehub.admin"
   member  = google_service_account.gdce-provisioning-agent.member
 }
 
 resource "google_project_iam_member" "gdce-provisioning-agent-hub-gateway" {
-  project = var.project
+  project = local.project_id_fleet
   role    = "roles/gkehub.gatewayAdmin"
   member  = google_service_account.gdce-provisioning-agent.member
 }
@@ -170,7 +193,7 @@ resource "google_service_account" "es-agent" {
 }
 
 resource "google_project_iam_member" "es-agent-secret-accessor" {
-  project = var.project
+  project = local.project_id_secrets
   role    = "roles/secretmanager.secretAccessor"
   member  = google_service_account.es-agent.member
 }
@@ -205,31 +228,31 @@ resource "google_service_account" "zone-watcher-agent" {
 }
 
 resource "google_project_iam_member" "zone-watcher-agent-storage-admin" {
-  project = var.project
+  project = var.project_id
   role    = "roles/storage.admin"
   member  = google_service_account.zone-watcher-agent.member
 }
 
 resource "google_project_iam_member" "zone-watcher-agent-cloud-build-editor" {
-  project = var.project
+  project = var.project_id
   role    = "roles/cloudbuild.builds.editor"
   member  = google_service_account.zone-watcher-agent.member
 }
 
 resource "google_project_iam_member" "zone-watcher-agent-impersonate-sa" {
-  project = var.project
+  project = var.project_id
   role    = "roles/iam.serviceAccountTokenCreator"
   member  = google_service_account.zone-watcher-agent.member
 }
 
 resource "google_project_iam_member" "zone-watcher-agent-token-user" {
-  project = var.project
+  project = var.project_id
   role    = "roles/iam.serviceAccountUser"
   member  = google_service_account.zone-watcher-agent.member
 }
 
 resource "google_project_iam_member" "zone-watcher-agent-edge-viewer" {
-  project = var.project
+  project = local.project_id_fleet
   role    = "roles/edgecontainer.viewer"
   member  = google_service_account.zone-watcher-agent.member
 }
@@ -259,7 +282,7 @@ resource "google_cloudfunctions2_function" "zone-watcher" {
     available_memory   = "256M"
     timeout_seconds    = 60
     environment_variables = {
-      GOOGLE_CLOUD_PROJECT                 = var.project,
+      GOOGLE_CLOUD_PROJECT                 = var.project_id,
       CONFIG_CSV                           = "gs://${google_storage_bucket.gdce-cluster-provisioner-bucket.name}/${google_storage_bucket_object.cluster-intent-registry.output_name}",
       CB_TRIGGER_NAME                      = "gdce-cluster-provisioner-trigger-${var.environment}"
       REGION                               = var.region
@@ -319,7 +342,7 @@ resource "google_cloudfunctions2_function" "cluster-watcher" {
     available_memory   = "256M"
     timeout_seconds    = 60
     environment_variables = {
-      GOOGLE_CLOUD_PROJECT                 = var.project,
+      GOOGLE_CLOUD_PROJECT                 = var.project_id,
       CONFIG_CSV                           = "gs://${google_storage_bucket.gdce-cluster-provisioner-bucket.name}/${google_storage_bucket_object.cluster-intent-registry.output_name}",
       CB_TRIGGER_NAME                      = "gdce-cluster-reconciler-trigger-${var.environment}"
       REGION                               = var.region

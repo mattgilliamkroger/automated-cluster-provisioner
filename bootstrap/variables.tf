@@ -1,15 +1,45 @@
-variable "project" {
-  description = "GCP project name"
-  default     = "cloud-alchemists-sandbox"
+variable "node_location" {
+  description = "default GDCE zone used by CloudBuild"
+  type        = string
+}
+
+variable "project_id" {
+  description = "The Google Cloud Platform (GCP) project id in which the solution resources will be provisioned"
+  type        = string
+}
+
+variable "project_id_fleet" {
+  description = "Optional id of GCP project hosting the Google Kubernetes Engine (GKE) fleet or Google Distributed Compute Engine (GDCE) machines. Defaults to the value of 'project_id'."
+  default     = null
+  type        = string
+}
+
+variable "project_id_secrets" {
+  description = "Optional id of GCP project containing the Secret Manager entry storing Git repository credentials. Defaults to the value of 'project_id'."
+  default     = null
+  type        = string
 }
 
 variable "region" {
   description = "GCP region to deploy resources"
-  default     = "us-central1"
+  type        = string
 }
 
-variable "gcp_project_services" {
-  type        = list(any)
+variable "project_services" {
+  type        = list(string)
+  description = "GCP Service APIs (<api>.googleapis.com) to enable for this project"
+  default = [
+    "cloudbuild.googleapis.com",
+    "cloudfunctions.googleapis.com",
+    "cloudscheduler.googleapis.com",
+    "run.googleapis.com",
+    "storage.googleapis.com",
+  ]
+}
+
+# prune list of required services later
+variable "project_services_fleet" {
+  type        = list(string)
   description = "GCP Service APIs (<api>.googleapis.com) to enable for this project"
   default = [
     "anthos.googleapis.com",
@@ -41,9 +71,17 @@ variable "gcp_project_services" {
   ]
 }
 
+variable "project_services_secrets" {
+  type        = list(string)
+  description = "GCP Service APIs (<api>.googleapis.com) to enable for this project"
+  default = [
+    "secretmanager.googleapis.com",
+  ]
+}
+
 variable "environment" {
   description = "Deployment environment"
-  default     = "stg"
+  type        = string
 }
 
 variable "edge_container_api_endpoint_override" {
