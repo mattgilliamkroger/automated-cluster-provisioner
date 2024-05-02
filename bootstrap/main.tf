@@ -257,6 +257,18 @@ resource "google_project_iam_member" "zone-watcher-agent-edge-viewer" {
   member  = google_service_account.zone-watcher-agent.member
 }
 
+# Image pulling from artifact registry
+
+resource "google_service_account" "image-puller-agent" {
+  account_id = "image-puller-${var.environment}"
+}
+
+resource "google_project_iam_member" "image-puller-agent-artifactregistry-reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = google_service_account.image-puller-agent.member
+}
+
 # zone-watcher cloud function
 resource "google_cloudfunctions2_function" "zone-watcher" {
   name        = "zone-watcher-${var.environment}"
