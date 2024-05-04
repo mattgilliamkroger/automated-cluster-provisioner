@@ -9,7 +9,11 @@ steps:
     apt-get install -y gettext-base
     apt-get install -y csvtool
 
-    gsutil cp gs://$CLUSTER_INTENT_BUCKET/cluster-intent-registry.csv .
+    TOKEN=$(gcloud secrets versions access latest --secret=$GIT_SECRET_ID --project $GIT_SECRETS_PROJECT_ID)
+
+    git clone -b $SOURCE_OF_TRUTH_BRANCH https://oauth2:$TOKEN@$SOURCE_OF_TRUTH_REPO repo
+
+    cp repo/$SOURCE_OF_TRUTH_PATH ./cluster-intent-registry.csv
 
     export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$NODE_LOCATION\" || \$1 == \"\\\"$NODE_LOCATION\\\"\"" cluster-intent-registry.csv)
 
@@ -96,6 +100,11 @@ steps:
   - 'EDGE_NETWORK_API_ENDPOINT_OVERRIDE=$_EDGE_NETWORK_API_ENDPOINT_OVERRIDE'
   - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'
   - 'CLUSTER_INTENT_BUCKET=$_CLUSTER_INTENT_BUCKET'
+  - 'SOURCE_OF_TRUTH_REPO=$_SOURCE_OF_TRUTH_REPO'
+  - 'SOURCE_OF_TRUTH_BRANCH=$_SOURCE_OF_TRUTH_BRANCH'
+  - 'SOURCE_OF_TRUTH_PATH=$_SOURCE_OF_TRUTH_PATH'
+  - 'GIT_SECRET_ID=$_GIT_SECRET_ID'
+  - 'GIT_SECRETS_PROJECT_ID=$_GIT_SECRETS_PROJECT_ID'
 
 timeout: 14400s
 options:

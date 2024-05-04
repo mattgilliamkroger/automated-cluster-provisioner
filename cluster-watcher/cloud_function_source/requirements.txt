@@ -3,3 +3,4 @@ google-cloud-build
 google-cloud-edgecontainer
 google-cloud-edgenetwork
 google-cloud-storage
+google-cloud-secret-manager

@@ -98,3 +98,23 @@ variable "gke_hub_api_endpoint_override" {
   description = "Google Distributed Cloud Edge API"
   default     = "https://staging-gkehub.sandbox.googleapis.com/"
 }
+
+variable "source_of_truth_repo" {
+  description = "Source of truth repository"
+  default = "gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/cluster-intent-registry"
+}
+
+variable "source_of_truth_branch" {
+  description = "Source of truth branch"
+  default = "main"
+}
+
+variable "source_of_truth_path" {
+  description = "Path to cluster intent registry file"
+  default = "source_of_truth.csv"
+}
+
+variable "git_secret_id" {
+  description = "Secrets manager secret holding git token to pull source of truth"
+  default = "shyguy-internal-pat"
+}

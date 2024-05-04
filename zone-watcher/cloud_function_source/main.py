@@ -5,9 +5,13 @@ import io
 import flask
 import csv
 import logging
+import requests
+import google_crc32c
+from requests.structures import CaseInsensitiveDict
 from urllib.parse import urlparse
 from google.api_core import client_options
 from google.cloud import edgecontainer
+from google.cloud import secretmanager
 from google.cloud import storage
 from google.cloud.devtools import cloudbuild
 
@@ -17,7 +21,12 @@ def zone_watcher(req: flask.Request):
 
     proj_id = os.environ.get("GOOGLE_CLOUD_PROJECT") # This is the project id of where the csv file located
     region = os.environ.get("REGION")
-    gcs_config_uri = os.environ.get("CONFIG_CSV")
+    secrets_project = os.environ.get("PROJECT_ID_SECRETS")
+    git_secret_id = os.environ.get("GIT_SECRET_ID")
+    source_of_truth_repo = os.environ.get("SOURCE_OF_TRUTH_REPO")
+    source_of_truth_branch = os.environ.get("SOURCE_OF_TRUTH_BRANCH")
+    source_of_truth_path = os.environ.get("SOURCE_OF_TRUTH_PATH")
+
     # format: projects/<project-id>/locations/<location>/triggers/<trigger-name>
     # e.g. projects/daniel-test-proj-411311/locations/us-central1/triggers/test-trigger
     # location could be "global"
@@ -26,24 +35,29 @@ def zone_watcher(req: flask.Request):
         raise Exception('missing GOOGLE_CLOUD_PROJECT, (gcs csv file project)')
     if region is None:
         raise Exception('missing REGION (us-central1)')
-    if gcs_config_uri is None:
-        raise Exception('missing CONFIG_CSV (gs://<bucket_name>/<csv_file_path>)')
     if cb_trigger is None:
         raise Exception('missing CB_TRIGGER_NAME (projects/<project-id>/locations/<location>/triggers/<trigger-name>)')
+    if git_secret_id is None:
+        raise Exception('missing secret id for git pull credentials')
+    if '//' in source_of_truth_repo:
+        raise Exception('provide repo in the form of (github.com/org_name/repo_name) or (gitlab.com/org_name/repo_name)')
+    
+    if secrets_project is None:
+        secrets_project = proj_id
 
     logger = logging.getLogger()
     logging.basicConfig(stream=sys.stdout, level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
-    logger.info(f'Running zone watcher for: proj_id={proj_id}, gcs_config_uri={gcs_config_uri}, cb_trigger={cb_trigger}')
+    logger.info(f'Running zone watcher for: proj_id={proj_id},sot={source_of_truth_repo}/{source_of_truth_branch}/{source_of_truth_path}, cb_trigger={cb_trigger}')
 
     # Get the CSV file from GCS containing target zones
     # NODE_LOCATION	MACHINE_PROJECT_ID	FLEET_PROJECT_ID	CLUSTER_NAME	LOCATION	NODE_COUNT	EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS	SYNC_REPO	SYNC_BRANCH	SYNC_DIR	GIT_TOKEN_SECRETS_MANAGER_NAME
     # us-central1-edge-den25349	cloud-alchemist-machines	gmec-developers-1	lcp-den29	us-central1	1	172.17.34.96-172.17.34.100	https://gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/primary-root-repo	main	/config/clusters/den29/meta	shyguy-internal-pat
     config_zone_info = {}
-    sto_client = storage.Client(project=proj_id)
-    blob = storage.Blob.from_string(uri=gcs_config_uri, client=sto_client)
-    zone_config_fio = io.StringIO(blob.download_as_bytes().decode())  # download the content to memory
-    rdr = csv.DictReader(zone_config_fio)  # will raise exception if csv parsing fails
+    token = get_git_token_from_secrets_manager(secrets_project, git_secret_id)
+    intent_reader = ClusterIntentReader(source_of_truth_repo, source_of_truth_branch, source_of_truth_path, token)
+    zone_config_fio = intent_reader.retrieve_source_of_truth()
+    rdr = csv.DictReader(io.StringIO(zone_config_fio))  # will raise exception if csv parsing fails
     machine_proj_loc = set()
     for row in rdr:
         if row['LOCATION'] not in config_zone_info.keys():
@@ -118,3 +132,65 @@ def zone_watcher(req: flask.Request):
     logger.info(f'total zones triggered = {count}')
 
     return f'total zones triggered = {count}'
+
+class ClusterIntentReader:
+    def __init__(self, repo, branch, sourceOfTruth, token):
+        self.repo = repo
+        self.branch = branch
+        self.sourceOfTruth = sourceOfTruth
+        self.token = token
+
+    def retrieve_source_of_truth(self):
+        url = self._get_url()
+
+        resp = requests.get(url, headers=self._get_headers())
+
+        if resp.status_code == 200:
+            return resp.text
+        else:
+            raise Exception(f"Unable to retrieve source of truth with status code ({resp.status_code})")
+
+    def _get_url(self):
+        parse_result = urlparse(f"https://{self.repo}")
+
+        if parse_result.netloc == "github.com":
+            # Remove .git suffix used in git web url
+            path = parse_result.path.split('.')[0]
+
+            return f"https://raw.githubusercontent.com{path}/{self.branch}/{self.sourceOfTruth}"
+        elif parse_result.netloc == "gitlab.com":
+            path = parse_result.path.split('.')[0]
+            
+            # projectid is url encoded: org%2Fproject%2Frepo_name
+            project_id = path[1:].replace('/', '%2F')
+
+            return f"https://gitlab.com/api/v4/projects/{project_id}/repository/files/{self.sourceOfTruth}/raw?ref={self.branch}&private_token={self.token}"
+        else:
+            raise Exception("Unsupported git provider")
+
+    def _get_headers(self):
+        headers = CaseInsensitiveDict()
+
+        parse_result = urlparse(f"https://{self.repo}")
+
+        if parse_result.netloc == "github.com":
+            headers["Authorization"] = f"token {self.token}"
+            return headers
+        elif parse_result.netloc == "gitlab.com":
+            return headers
+        else:
+            raise Exception("Unsupported git provider")
+        
+def get_git_token_from_secrets_manager(secrets_project_id, secret_id, version_id="latest"):
+    client = secretmanager.SecretManagerServiceClient()
+
+    name = f"projects/{secrets_project_id}/secrets/{secret_id}/versions/{version_id}"
+
+    response = client.access_secret_version(request={"name": name})
+
+    crc32c = google_crc32c.Checksum()
+    crc32c.update(response.payload.data)
+    if response.payload.data_crc32c != int(crc32c.hexdigest(), 16):
+        raise Exception("Data corruption detected.")
+
+    return response.payload.data.decode("UTF-8")
