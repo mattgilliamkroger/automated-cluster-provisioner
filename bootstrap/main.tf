@@ -196,28 +196,16 @@ resource "google_project_iam_member" "es-agent-secret-accessor" {
   member  = google_service_account.es-agent.member
 }
 
-data "archive_file" "zone-watcher" {
+data "archive_file" "watcher-src" {
   type        = "zip"
-  output_path = "/tmp/zone_watcher_gcf.zip"
-  source_dir  = "../zone-watcher/cloud_function_source/"
+  output_path = "/tmp/watcher_src.zip"
+  source_dir  = "../watchers/src/"
 }
 
-resource "google_storage_bucket_object" "zone-watcher-src" {
-  name   = "zone_watcher_gcf.zip"
+resource "google_storage_bucket_object" "watcher-src" {
+  name   = "watcher_src.zip"
   bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
-  source = data.archive_file.zone-watcher.output_path # Add path to the zipped function source code
-}
-
-data "archive_file" "cluster-watcher" {
-  type        = "zip"
-  output_path = "/tmp/cluster_watcher_gcf.zip"
-  source_dir  = "../cluster-watcher/cloud_function_source/"
-}
-
-resource "google_storage_bucket_object" "cluster-watcher-src" {
-  name   = "cluster_watcher_gcf.zip"
-  bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
-  source = data.archive_file.cluster-watcher.output_path # Add path to the zipped function source code
+  source = data.archive_file.watcher-src.output_path # Add path to the zipped function source code
 }
 
 resource "google_service_account" "zone-watcher-agent" {
@@ -277,12 +265,12 @@ resource "google_cloudfunctions2_function" "zone-watcher" {
     runtime     = "python312"
     entry_point = "zone_watcher"
     environment_variables = {
-      "SOURCE_SHA" = data.archive_file.zone-watcher.output_sha # https://github.com/hashicorp/terraform-provider-google/issues/1938
+      "SOURCE_SHA" = data.archive_file.watcher-src.output_sha # https://github.com/hashicorp/terraform-provider-google/issues/1938
     }
     source {
       storage_source {
         bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
-        object = google_storage_bucket_object.zone-watcher-src.name
+        object = google_storage_bucket_object.watcher-src.name
       }
     }
   }
@@ -341,12 +329,12 @@ resource "google_cloudfunctions2_function" "cluster-watcher" {
     runtime     = "python312"
     entry_point = "cluster_watcher"
     environment_variables = {
-      "SOURCE_SHA" = data.archive_file.cluster-watcher.output_sha # https://github.com/hashicorp/terraform-provider-google/issues/1938
+      "SOURCE_SHA" = data.archive_file.watcher-src.output_sha # https://github.com/hashicorp/terraform-provider-google/issues/1938
     }
     source {
       storage_source {
         bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
-        object = google_storage_bucket_object.cluster-watcher-src.name
+        object = google_storage_bucket_object.watcher-src.name
       }
     }
   }
