@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import functions_framework
 import sys
 import os
@@ -16,11 +17,22 @@ from google.cloud import secretmanager
 from google.cloud import storage
 from google.cloud.devtools import cloudbuild
 
+logger = logging.getLogger()
+logging.basicConfig(stream=sys.stdout, level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
-@functions_framework.http
-def zone_watcher(req: flask.Request):
+@dataclass
+class WatcherParameters:
+    project_id: str
+    secrets_project_id: str
+    region: str
+    git_secret_id: str
+    source_of_truth_repo: str
+    source_of_truth_branch: str
+    source_of_truth_path: str
+    cloud_build_trigger: str
 
-    proj_id = os.environ.get("GOOGLE_CLOUD_PROJECT") # This is the project id of where the csv file located
+def get_parameters_from_environment():
+    proj_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     region = os.environ.get("REGION")
     secrets_project = os.environ.get("PROJECT_ID_SECRETS")
     git_secret_id = os.environ.get("GIT_SECRET_ID")
@@ -28,10 +40,11 @@ def zone_watcher(req: flask.Request):
     source_of_truth_branch = os.environ.get("SOURCE_OF_TRUTH_BRANCH")
     source_of_truth_path = os.environ.get("SOURCE_OF_TRUTH_PATH")
 
-    # format: projects/<project-id>/locations/<location>/triggers/<trigger-name>
-    # e.g. projects/daniel-test-proj-411311/locations/us-central1/triggers/test-trigger
-    # location could be "global"
     cb_trigger = f'projects/{proj_id}/locations/{region}/triggers/{os.environ.get("CB_TRIGGER_NAME")}'
+
+    if secrets_project is None:
+        secrets_project = proj_id
+
     if proj_id is None:
         raise Exception('missing GOOGLE_CLOUD_PROJECT, (gcs csv file project)')
     if region is None:
@@ -40,23 +53,38 @@ def zone_watcher(req: flask.Request):
         raise Exception('missing CB_TRIGGER_NAME (projects/<project-id>/locations/<location>/triggers/<trigger-name>)')
     if git_secret_id is None:
         raise Exception('missing secret id for git pull credentials')
+    if source_of_truth_repo is None:
+        raise Exception('missing source of truth repository')
+    if source_of_truth_branch is None:
+        raise Exception('missing source of truth branch')
+    if source_of_truth_path is None:
+        raise Exception('missing path and name of source of truth')
     if '//' in source_of_truth_repo:
         raise Exception('provide repo in the form of (github.com/org_name/repo_name) or (gitlab.com/org_name/repo_name)')
     
-    if secrets_project is None:
-        secrets_project = proj_id
+    return WatcherParameters(
+        project_id=proj_id,
+        secrets_project_id=secrets_project,
+        region=region,
+        cloud_build_trigger=cb_trigger,
+        git_secret_id=git_secret_id,
+        source_of_truth_repo=source_of_truth_repo,
+        source_of_truth_branch=source_of_truth_branch,
+        source_of_truth_path=source_of_truth_path
+    )
+ 
+@functions_framework.http
+def zone_watcher(req: flask.Request):
+    params = get_parameters_from_environment()
 
-    logger = logging.getLogger()
-    logging.basicConfig(stream=sys.stdout, level=os.environ.get("LOG_LEVEL", "INFO").upper())
-
-    logger.info(f'Running zone watcher for: proj_id={proj_id},sot={source_of_truth_repo}/{source_of_truth_branch}/{source_of_truth_path}, cb_trigger={cb_trigger}')
+    logger.info(f'Running zone watcher for: proj_id={params.project_id},sot={params.source_of_truth_repo}/{params.source_of_truth_branch}/{params.source_of_truth_path}, cb_trigger={params.cloud_build_trigger}')
 
     # Get the CSV file from GCS containing target zones
     # NODE_LOCATION	MACHINE_PROJECT_ID	FLEET_PROJECT_ID	CLUSTER_NAME	LOCATION	NODE_COUNT	EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS	SYNC_REPO	SYNC_BRANCH	SYNC_DIR	GIT_TOKEN_SECRETS_MANAGER_NAME
     # us-central1-edge-den25349	cloud-alchemist-machines	gmec-developers-1	lcp-den29	us-central1	1	172.17.34.96-172.17.34.100	https://gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/primary-root-repo	main	/config/clusters/den29/meta	shyguy-internal-pat
     config_zone_info = {}
-    token = get_git_token_from_secrets_manager(secrets_project, git_secret_id)
-    intent_reader = ClusterIntentReader(source_of_truth_repo, source_of_truth_branch, source_of_truth_path, token)
+    token = get_git_token_from_secrets_manager(params.secrets_project_id, params.git_secret_id)
+    intent_reader = ClusterIntentReader(params.source_of_truth_repo, params.source_of_truth_branch, params.source_of_truth_path, token)
     zone_config_fio = intent_reader.retrieve_source_of_truth()
     rdr = csv.DictReader(io.StringIO(zone_config_fio))  # will raise exception if csv parsing fails
     machine_proj_loc = set()
@@ -116,13 +144,13 @@ def zone_watcher(req: flask.Request):
                 "_NODE_LOCATION": z
             }
             req = cloudbuild.RunBuildTriggerRequest(
-                name=cb_trigger,
+                name=params.cloud_build_trigger,
                 source=repo_source
             )
             logger.debug(req)
             try:
                 logger.info(f'triggering cloud build for {z}')
-                logger.info(f'trigger: {cb_trigger}')
+                logger.info(f'trigger: {params.cloud_build_trigger}')
                 opr = cb_client.run_build_trigger(request=req)
                 # response = opr.result()
             except Exception as err:
@@ -136,45 +164,18 @@ def zone_watcher(req: flask.Request):
 
 @functions_framework.http
 def cluster_watcher(req: flask.Request):
-    proj_id = os.environ.get("GOOGLE_CLOUD_PROJECT")  # This is the project id of where the csv file located
-    region = os.environ.get("REGION")
-    secrets_project = os.environ.get("PROJECT_ID_SECRETS")
-    git_secret_id = os.environ.get("GIT_SECRET_ID")
-    source_of_truth_repo = os.environ.get("SOURCE_OF_TRUTH_REPO")
-    source_of_truth_branch = os.environ.get("SOURCE_OF_TRUTH_BRANCH")
-    source_of_truth_path = os.environ.get("SOURCE_OF_TRUTH_PATH")
-    # format: projects/<project-id>/locations/<location>/triggers/<trigger-name>
-    # e.g. projects/daniel-test-proj-411311/locations/us-central1/triggers/test-trigger
-    # location could be "global"
-    cb_trigger = f'projects/{proj_id}/locations/{region}/triggers/{os.environ.get("CB_TRIGGER_NAME")}'
-    if proj_id is None:
-        raise Exception('missing GOOGLE_CLOUD_PROJECT, (gcs csv file project)')
-    if region is None:
-        raise Exception('missing REGION (us-central1)')
-    if cb_trigger is None:
-        raise Exception('missing CB_TRIGGER_NAME (projects/<project-id>/locations/<location>/triggers/<trigger-name>)')
-    if git_secret_id is None:
-        raise Exception('missing secret id for git pull credentials')
-    if '//' in source_of_truth_repo:
-        raise Exception('provide repo in the form of (github.com/org_name/repo_name) or (gitlab.com/org_name/repo_name)')
+    params = get_parameters_from_environment()
 
-    if secrets_project is None:
-        secrets_project = proj_id
-
-    # set log level, default is INFO, unless has {debug: true} in request
-    logger = logging.getLogger()
-    logging.basicConfig(stream=sys.stdout, level=os.environ.get("LOG_LEVEL", "INFO").upper())
-
-    logger.info(f'proj_id = {proj_id}')
-    logger.info(f'cb_trigger = {cb_trigger}')
+    logger.info(f'proj_id = {params.project_id}')
+    logger.info(f'cb_trigger = {params.cloud_build_trigger}')
 
     # Get the CSV file from GCS containing target zones
     # "NODE_LOCATION",              "MACHINE_PROJECT_ID",           "FLEET_PROJECT_ID",         "CLUSTER_NAME", "LOCATION", "NODE_COUNT",   "EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS","SYNC_REPO",                                                                                "SYNC_BRANCH",  "SYNC_DIR",                     "GIT_TOKEN_SECRETS_MANAGER_NAME",   "ES_AGENT_SECRETS_MANAGER_NAME", "SUBNET_VLANS",    "SUBNET_IPV4_ADDRESSES",    "MAINTENANCE_WINDOW_START", "MAINTENANCE_WINDOW_END",   "MAINTENANCE_WINDOW_RECURRENCE"
     # "us-central1-edge-den25349",  "cloud-alchemists-machines",    "cloud-alchemists-sandbox", "lcp-den29",    "us-central1",  "1",        "172.17.34.96-172.17.34.100",               "https://gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/primary-root-repo","main",        "/config/clusters/den29/meta",  "shyguy-internal-pat",              "external-secret-agent-key"
     # "us-central1-edge-den59566",  "edgesites-baremetal-lab-qual", "cloud-alchemists-sandbox", "lcp-den84",    "us-central1",  "3",        "172.20.4.240-172.20.4.248",                "https://gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/primary-root-repo","main",        "/config/clusters/den84/meta",  "shyguy-internal-pat",              "external-secret-agent-key"
     config_zone_info = {}
-    token = get_git_token_from_secrets_manager(secrets_project, git_secret_id)
-    intent_reader = ClusterIntentReader(source_of_truth_repo, source_of_truth_branch, source_of_truth_path, token)
+    token = get_git_token_from_secrets_manager(params.secrets_project_id, params.git_secret_id)
+    intent_reader = ClusterIntentReader(params.source_of_truth_repo, params.source_of_truth_branch, params.source_of_truth_path, token)
     zone_config_fio = intent_reader.retrieve_source_of_truth()
     rdr = csv.DictReader(io.StringIO(zone_config_fio))  # will raise exception if csv parsing fails
     for row in rdr:
@@ -220,7 +221,7 @@ maintenancePolicy:
         # the GDCE Zone info is in "control_plane"
         # maintain window info is in "maintenance_policy.window"
         req_c = edgecontainer.ListClustersRequest(
-            parent=ec_client.common_location_path(proj_id, loc)
+            parent=ec_client.common_location_path(params.project_id, loc)
         )
         res_pager_c = ec_client.list_clusters(req_c)
         cl_list = [c for c in res_pager_c]  # all the clusters in the location
@@ -242,7 +243,7 @@ maintenancePolicy:
                     rw.window.end_time == config_zone_info[loc][z]['MAINTENANCE_WINDOW_END']):
                 # get subnet vlan ids and ip addresses of this GDCE Zone
                 req_n = edgenetwork.ListSubnetsRequest(
-                    parent=f'{en_client.common_location_path(proj_id, loc)}/zones/{z}'
+                    parent=f'{en_client.common_location_path(params.project_id, loc)}/zones/{z}'
                 )
                 res_pager_n = en_client.list_subnets(req_n)
                 subnet_list = [{'vlan_id': net.vlan_id, 'ipv4_cidr': sorted(net.ipv4_cidr)} for net in res_pager_n]
@@ -273,13 +274,13 @@ maintenancePolicy:
                 "_NODE_LOCATION": z
             }
             req = cloudbuild.RunBuildTriggerRequest(
-                name=cb_trigger,
+                name=params.cloud_build_trigger,
                 source=repo_source
             )
             logger.debug(req)
             try:
                 logger.info(f'triggering cloud build for {z}')
-                logger.info(f'trigger: {cb_trigger}')
+                logger.info(f'trigger: {params.cloud_build_trigger}')
                 opr = cb_client.run_build_trigger(request=req)
                 # response = opr.result()
             except Exception as err:
