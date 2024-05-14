@@ -14,8 +14,8 @@ from google.api_core import client_options
 from google.cloud import edgecontainer
 from google.cloud import edgenetwork
 from google.cloud import secretmanager
-from google.cloud import storage
 from google.cloud.devtools import cloudbuild
+from dateutil.parser import parse
 
 logger = logging.getLogger()
 logging.basicConfig(stream=sys.stdout, level=os.environ.get("LOG_LEVEL", "INFO").upper())
@@ -238,33 +238,48 @@ maintenancePolicy:
             rw = zone_cluster_list[0].maintenance_policy.window.recurring_window  # cluster in this GDCE zone
             # Validate the start_time, end_time and rrule string of the maintenance window
             has_update = False
-            if (rw.recurrence == config_zone_info[loc][z]['MAINTENANCE_WINDOW_RECURRENCE'] and
-                    rw.window.start_time == config_zone_info[loc][z]['MAINTENANCE_WINDOW_START'] and
-                    rw.window.end_time == config_zone_info[loc][z]['MAINTENANCE_WINDOW_END']):
-                # get subnet vlan ids and ip addresses of this GDCE Zone
-                req_n = edgenetwork.ListSubnetsRequest(
-                    parent=f'{en_client.common_location_path(params.project_id, loc)}/zones/{z}'
-                )
-                res_pager_n = en_client.list_subnets(req_n)
-                subnet_list = [{'vlan_id': net.vlan_id, 'ipv4_cidr': sorted(net.ipv4_cidr)} for net in res_pager_n]
-                subnet_list.sort(key=lambda x: x['vlan_id'])
-                logger.debug(subnet_list)
-                try:
-                    # as of now we only need to consider vlan_id for GDCE device (config-8)
-                    # Needs to compare ipv4_cidr if this script applies to GDCE rack (config-1 or config-2)
-                    # config_subnet_list = [{'vlan_id': int(v), 'ipv4_cidr': [n]} for v, n in zip(
-                    #     config_zone_info[loc][z]['SUBNET_VLANS'].split(','),
-                    #     config_zone_info[loc][z]['SUBNET_IPV4_ADDRESSES'].split(',')
-                    # )].sort(key=lambda x: x['vlan_id'])
-                    # if subnet_list != config_subnet_list:
-                    #     has_update = True
-                    if [n['vlan_id'] for n in subnet_list] != \
-                            [int(v) for v in config_zone_info[loc][z]['SUBNET_VLANS'].split(',')].sort():
-                        has_update = True
-                except Exception as err:
-                    logger.error(err)
-            else:
+
+            if (rw.recurrence != config_zone_info[loc][z]['MAINTENANCE_WINDOW_RECURRENCE'] or
+                    rw.window.start_time != parse(config_zone_info[loc][z]['MAINTENANCE_WINDOW_START']) or
+                    rw.window.end_time != parse(config_zone_info[loc][z]['MAINTENANCE_WINDOW_END'])):
+                logger.info("Maintenance window requires update")
+                logger.info(f"Actual values (recurrence={rw.recurrence}, start_time={rw.window.start_time}, end_time={rw.window.end_time})")
+                logger.info(f"Desired values (recurrence={config_zone_info[loc][z]['MAINTENANCE_WINDOW_RECURRENCE']}, start_time={config_zone_info[loc][z]['MAINTENANCE_WINDOW_START']}, end_time={config_zone_info[loc][z]['MAINTENANCE_WINDOW_END']})")
                 has_update = True
+
+            # get subnet vlan ids and ip addresses of this GDCE Zone
+            req_n = edgenetwork.ListSubnetsRequest(
+                parent=f'{en_client.common_location_path(config_zone_info[loc][z]['MACHINE_PROJECT_ID'], loc)}/zones/{z}'
+            )
+            res_pager_n = en_client.list_subnets(req_n)
+            subnet_list = [{'vlan_id': net.vlan_id, 'ipv4_cidr': sorted(net.ipv4_cidr)} for net in res_pager_n]
+            subnet_list.sort(key=lambda x: x['vlan_id'])
+            logger.debug(subnet_list)
+            try:
+                # as of now we only need to consider vlan_id for GDCE device (config-8)
+                # Needs to compare ipv4_cidr if this script applies to GDCE rack (config-1 or config-2)
+                # config_subnet_list = [{'vlan_id': int(v), 'ipv4_cidr': [n]} for v, n in zip(
+                #     config_zone_info[loc][z]['SUBNET_VLANS'].split(','),
+                #     config_zone_info[loc][z]['SUBNET_IPV4_ADDRESSES'].split(',')
+                # )].sort(key=lambda x: x['vlan_id'])
+                # if subnet_list != config_subnet_list:
+                #     has_update = True
+                for desired_subnet in config_zone_info[loc][z]['SUBNET_VLANS'].split(','):
+                    try:
+                        vlan_id = int(desired_subnet)
+                    except Exception as err:
+                        logger.error("unable to convert vlan to an int", err)
+
+                    if vlan_id not in [n['vlan_id'] for n in subnet_list]:
+                        logger.info(f"No vlan created for vlan: {vlan_id}")
+                        has_update = True
+
+                for actual_vlan_id in [n['vlan_id'] for n in subnet_list]:
+                    if actual_vlan_id not in [int(v) for v in config_zone_info[loc][z]['SUBNET_VLANS'].split(',')]:
+                        logger.error(f"VLAN {actual_vlan_id} is defined in the environment, but not in the source of truth. The subnet will need to be manually deleted from the environment.")
+            except Exception as err:
+                logger.error(err)
+
             if not has_update:
                 continue
             # trigger cloudbuild to initiate the cluster updating
