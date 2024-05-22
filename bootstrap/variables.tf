@@ -86,17 +86,17 @@ variable "environment" {
 
 variable "edge_container_api_endpoint_override" {
   description = "Google Distributed Cloud Edge API"
-  default     = "https://staging-edgecontainer.sandbox.googleapis.com/"
+  default     = ""
 }
 
 variable "edge_network_api_endpoint_override" {
   description = "Google Distributed Cloud Edge Network API"
-  default     = "https://staging-edgenetwork.sandbox.googleapis.com/"
+  default     = ""
 }
 
 variable "gke_hub_api_endpoint_override" {
   description = "Google Distributed Cloud Edge API"
-  default     = "https://staging-gkehub.sandbox.googleapis.com/"
+  default     = ""
 }
 
 variable "source_of_truth_repo" {
