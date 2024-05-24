@@ -77,7 +77,7 @@ steps:
 
       if [ "$EXISTING_VLAN" = "[]" ]; then
         gcloud edge-cloud networking subnets create "network-$vlan" \
-          --VLANID=$vlan \
+          --vlan-id=$vlan \
           --network=default \
           --location=$LOCATION \
           --zone=$NODE_LOCATION \

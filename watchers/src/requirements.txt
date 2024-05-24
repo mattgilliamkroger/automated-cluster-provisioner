@@ -4,3 +4,4 @@ google-cloud-edgecontainer
 google-cloud-edgenetwork
 google-cloud-storage
 google-cloud-secret-manager
+python-dateutil==2.9.0.post0
