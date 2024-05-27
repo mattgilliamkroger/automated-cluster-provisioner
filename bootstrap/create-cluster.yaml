@@ -5,30 +5,41 @@ steps:
   script: |
     #!/usr/bin/env bash
     set +x
+
+    function die() {
+      echo "ERROR: $1"
+      exit 1
+    }
+
+    [[ -z "${STORE_ID}" ]] && die "STORE_ID not set"
+
     apt-get update
     apt-get install -y gettext-base
     apt-get install -y csvtool
 
     TOKEN=$(gcloud secrets versions access latest --secret=$GIT_SECRET_ID --project $GIT_SECRETS_PROJECT_ID)
-
     git clone -b $SOURCE_OF_TRUTH_BRANCH https://oauth2:$TOKEN@$SOURCE_OF_TRUTH_REPO repo
-
     cp repo/$SOURCE_OF_TRUTH_PATH ./cluster-intent-registry.csv
 
-    export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$NODE_LOCATION\" || \$1 == \"\\\"$NODE_LOCATION\\\"\"" cluster-intent-registry.csv)
-
+    export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$STORE_ID\" || \$1 == \"\\\"$STORE_ID\\\"\"" cluster-intent-registry.csv)
     echo $CLUSTER_INTENT_ROW
-
-    if [ -z "$CLUSTER_INTENT_ROW" ]; then
-      echo "Cluster intent not found for $NODE_LOCATION"
-      exit 1
-    fi
-
+    [[ -z "$CLUSTER_INTENT_ROW" ]] && die "Cluster intent not found for store $STORE_ID"
     export CLUSTER_INTENT_HEADER=$(head -1 cluster-intent-registry.csv)
     export CLUSTER_INTENT="$CLUSTER_INTENT_HEADER"$'\n'"$CLUSTER_INTENT_ROW"
 
+    METADATA_PROJECT_ID=${METADATA_PROJECT_ID:-gdce-turnup}
+    NODE_LOCATION=$(gcloud compute project-info describe --project ${METADATA_PROJECT_ID} \
+        --format="value[](commonInstanceMetadata.items.${STORE_ID})" )
+    [[ -z "$NODE_LOCATION" ]] && die "NODE_LOCATION cannot be fetched from metadata project"
+
+    GDCE_ZONE_STATE=$(gcloud compute project-info describe --project ${METADATA_PROJECT_ID} \
+        --format="value[](commonInstanceMetadata.items.${NODE_LOCATION}-GDCE_ZONE_STATE)" )
+    if [[ "${GDCE_ZONE_STATE}" == "STATE_TURNED_UP_WITH_CLUSTER" ]]; then
+      echo "Zone ${NODE_LOCATION} is already marked as STATE_TURNED_UP_WITH_CLUSTER, exiting."
+      exit 0
+    fi
+
     # Set parameters from cluster intent
-    export NODE_LOCATION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "NODE_LOCATION" - | csvtool drop 1 -)
     export MACHINE_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MACHINE_PROJECT_ID" - | csvtool drop 1 -)
     export FLEET_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "FLEET_PROJECT_ID" - | csvtool drop 1 -)
     export CLUSTER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "CLUSTER_NAME" - | csvtool drop 1 -)
@@ -54,13 +65,13 @@ steps:
       gcloud config set api_endpoint_overrides/gkehub $GKEHUB_API_ENDPOINT_OVERRIDE
     fi
 
-    gcloud edge-cloud container clusters describe $CLUSTER_NAME --location $LOCATION --project $FLEET_PROJECT_ID
+    gcloud edge-cloud container clusters describe $CLUSTER_NAME --location $LOCATION \
+        --project $FLEET_PROJECT_ID
 
     if [ $? -eq 0 ]; then
       echo "Cluster already created, skipping to next step."
     else
       echo "Creating cluster"
-
       gcloud edge-cloud container clusters create $CLUSTER_NAME \
           --control-plane-node-location=$NODE_LOCATION \
           --control-plane-node-count=$NODE_COUNT \
@@ -71,10 +82,9 @@ steps:
           --release-channel=NONE \
           --version $CLUSTER_VERSION
 
-      if [ $? -ne 0 ]; then
-        echo "Cluster Creation Failed: Failure from gcloud edge-cloud container clusters ..."
-        exit 1
-      fi
+      [[ $? -ne 0 ]] && die "Cluster Creation Failed: Failure from gcloud \
+          edge-cloud container clusters ..."
+
     fi
 
     export KUBECONFIG="$(pwd)/gateway-kubeconfig"
@@ -86,15 +96,25 @@ steps:
     envsubst < apply-spec.yaml.template > apply-spec.yaml
     envsubst < cluster-secret-store.yaml.template > cluster-secret-store.yaml
 
-    gcloud secrets versions access latest --secret=$GIT_TOKEN_SECRETS_MANAGER_NAME --project $SECRETS_PROJECT_ID >> $(pwd)/git-creds
+    gcloud secrets versions access latest --secret=$GIT_TOKEN_SECRETS_MANAGER_NAME \
+        --project $SECRETS_PROJECT_ID >> $(pwd)/git-creds
+
     kubectl create ns config-management-system --dry-run=client -o yaml | kubectl apply -f -
-    kubectl create secret generic git-creds --namespace="config-management-system" --from-literal=username=default --from-file=token=$(pwd)/git-creds --dry-run=client -o yaml | kubectl apply -f -
 
-    gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
+    kubectl create secret generic git-creds --namespace="config-management-system" \
+        --from-literal=username=default --from-file=token=$(pwd)/git-creds \
+        --dry-run=client -o yaml | kubectl apply -f -
 
-    gcloud secrets versions access latest --secret=$ES_AGENT_SECRETS_MANAGER_NAME --project $SECRETS_PROJECT_ID >> $(pwd)/es-agent.json
+    gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME \
+        --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
+
+    gcloud secrets versions access latest --secret=$ES_AGENT_SECRETS_MANAGER_NAME \
+        --project $SECRETS_PROJECT_ID >> $(pwd)/es-agent.json
+
     kubectl create ns external-secrets --dry-run=client -o yaml | kubectl apply -f -
-    kubectl create secret generic gcp-store-creds --from-file=$(pwd)/es-agent.json -n external-secrets
+
+    kubectl create secret generic gcp-store-creds --from-file=$(pwd)/es-agent.json \
+        -n external-secrets
 
     # Wait up to 2 minutes for External Secrets CRDs
     tries=0
@@ -104,12 +124,8 @@ steps:
       tries=$((tries+1))
       sleep 15
     done
-
-    if [ "$tries" -ge 8 ]
-    then
-      echo "Cluster Creation Failed: External Secrets CRDS failed to deploy. Please confirm External Secrets deployment"
-      exit 1
-    fi
+    [[ "$tries" -ge 8 ]] && die "Cluster Creation Failed: External Secrets \
+          CRDS failed to deploy. Please confirm External Secrets deployment"
 
     kubectl wait --for=condition=available --timeout=30s apiservice/v1beta1.external-secrets.io
 
@@ -121,16 +137,36 @@ steps:
       tries=$((tries+1))
       sleep 15
     done
+    [[ "$tries" -ge 20 ]] && die "Cluster Creation Failed: External Secrets Cluster \
+          Secret Store failed to deploy. Please confirm External Secrets deployment"
 
-    if [ "$tries" -ge 20 ]
-    then
-      echo "Cluster Creation Failed: External Secrets Cluster Secret Store failed to deploy. Please confirm External Secrets deployment"
-      exit 1
+    if [ -z "${SKIP_HEALTH_CHECK}" ]; then
+      count=0
+      max_retries=240 # 1200s/20min
+      echo "Waiting for health check resource to be created"
+      while [[ ${count} -lt ${max_retries} ]]; do
+        kubectl get healthchecks.validator.gdc.gke.io/default >/dev/null 2>&1 && break
+        echo -n .
+        sleep 5
+        ((count++))
+      done
+      [[ ${count} -ge ${max_retries} ]] && die "Health check resource not created after 20min"
+
+      kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=PlatformHealthy \
+          --timeout=20m || die "Platform is not healthy after 20m"
+      kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=WorkloadsHealthy \
+          --timeout=20m || die "Workloads are not healthy after 20m"
     fi
+    
+    gcloud compute project-info add-metadata \
+        --metadata=${NODE_LOCATION}-GDCE_ZONE_STATE=STATE_TURNED_UP_WITH_CLUSTER \
+        --project=$METADATA_PROJECT_ID || \
+        die "Failed to update the cluster status in metadata"
 
     echo "Cluster Creation Succeeded: $CLUSTER_NAME"
+
   env:
-  - 'NODE_LOCATION=$_NODE_LOCATION'
+  - 'STORE_ID=$_STORE_ID'
   - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
   - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'
   - 'CLUSTER_INTENT_BUCKET=$_CLUSTER_INTENT_BUCKET'
@@ -139,6 +175,7 @@ steps:
   - 'SOURCE_OF_TRUTH_PATH=$_SOURCE_OF_TRUTH_PATH'
   - 'GIT_SECRET_ID=$_GIT_SECRET_ID'
   - 'GIT_SECRETS_PROJECT_ID=$_GIT_SECRETS_PROJECT_ID'
+  - 'METADATA_PROJECT_ID=$_METADATA_PROJECT_ID'
 timeout: 14400s
 options:
   logging: CLOUD_LOGGING_ONLY

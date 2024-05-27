@@ -1,6 +1,7 @@
-variable "node_location" {
-  description = "default GDCE zone used by CloudBuild"
+variable "store_id" {
+  description = "Store ID, used to lookup zone info"
   type        = string
+  default     = null
 }
 
 variable "project_id" {
@@ -16,6 +17,12 @@ variable "project_id_fleet" {
 
 variable "project_id_secrets" {
   description = "Optional id of GCP project containing the Secret Manager entry storing Git repository credentials. Defaults to the value of 'project_id'."
+  default     = null
+  type        = string
+}
+
+variable "project_id_metadata" {
+  description = "Optional id of GCP project containing the metadata for GDCE turnup."
   default     = null
   type        = string
 }

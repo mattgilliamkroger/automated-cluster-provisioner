@@ -1,4 +1,4 @@
 environment   = "stg"
-node_location = "us-central1-edge-den66"
+store_id      = "usden66"
 project_id    = "cloud-alchemists-sandbox"
 region        = "us-central1"
