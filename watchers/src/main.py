@@ -20,6 +20,7 @@ from dateutil.parser import parse
 logger = logging.getLogger()
 logging.basicConfig(stream=sys.stdout, level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
+
 @dataclass
 class WatcherParameters:
     project_id: str
@@ -30,6 +31,7 @@ class WatcherParameters:
     source_of_truth_branch: str
     source_of_truth_path: str
     cloud_build_trigger: str
+
 
 def get_parameters_from_environment():
     proj_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -72,7 +74,8 @@ def get_parameters_from_environment():
         source_of_truth_branch=source_of_truth_branch,
         source_of_truth_path=source_of_truth_path
     )
- 
+
+
 @functions_framework.http
 def zone_watcher(req: flask.Request):
     params = get_parameters_from_environment()
@@ -162,6 +165,7 @@ def zone_watcher(req: flask.Request):
 
     return f'total zones triggered = {count}'
 
+
 @functions_framework.http
 def cluster_watcher(req: flask.Request):
     params = get_parameters_from_environment()
@@ -249,7 +253,7 @@ maintenancePolicy:
 
             # get subnet vlan ids and ip addresses of this GDCE Zone
             req_n = edgenetwork.ListSubnetsRequest(
-                parent=f'{en_client.common_location_path(config_zone_info[loc][z]['MACHINE_PROJECT_ID'], loc)}/zones/{z}'
+                parent=f'{en_client.common_location_path(config_zone_info[loc][z]["MACHINE_PROJECT_ID"], loc)}/zones/{z}'
             )
             res_pager_n = en_client.list_subnets(req_n)
             subnet_list = [{'vlan_id': net.vlan_id, 'ipv4_cidr': sorted(net.ipv4_cidr)} for net in res_pager_n]
@@ -305,6 +309,7 @@ maintenancePolicy:
 
     return f'total zones triggered = {count}'
 
+
 class ClusterIntentReader:
     def __init__(self, repo, branch, sourceOfTruth, token):
         self.repo = repo
@@ -352,7 +357,8 @@ class ClusterIntentReader:
             return headers
         else:
             raise Exception("Unsupported git provider")
-        
+
+
 def get_git_token_from_secrets_manager(secrets_project_id, secret_id, version_id="latest"):
     client = secretmanager.SecretManagerServiceClient()
 
