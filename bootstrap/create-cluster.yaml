@@ -72,7 +72,7 @@ steps:
           --version $CLUSTER_VERSION
 
       if [ $? -ne 0 ]; then
-        echo "Cluster creation failed"
+        echo "Cluster Creation Failed: Failure from gcloud edge-cloud container clusters ..."
         exit 1
       fi
     fi
@@ -92,17 +92,43 @@ steps:
 
     gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
 
-    # TODO(bfogel) - Query against configsync status before proceeding, for now a 60 second sleep is enough for CRDs to deploy.
-    sleep 60
-
     gcloud secrets versions access latest --secret=$ES_AGENT_SECRETS_MANAGER_NAME --project $SECRETS_PROJECT_ID >> $(pwd)/es-agent.json
     kubectl create ns external-secrets --dry-run=client -o yaml | kubectl apply -f -
     kubectl create secret generic gcp-store-creds --from-file=$(pwd)/es-agent.json -n external-secrets
 
-    # Wait for external secrets CRD before applying ClusterSecretStore
-    kubectl wait --for condition=established --timeout=120s crd/externalsecrets.external-secrets.io
+    # Wait up to 2 minutes for External Secrets CRDs
+    tries=0
+    until [ "$tries" -ge 8 ]
+    do
+      kubectl get crd/externalsecrets.external-secrets.io >/dev/null 2>&1 && break
+      tries=$((tries+1))
+      sleep 15
+    done
 
-    kubectl apply -f cluster-secret-store.yaml
+    if [ "$tries" -ge 8 ]
+    then
+      echo "Cluster Creation Failed: External Secrets CRDS failed to deploy. Please confirm External Secrets deployment"
+      exit 1
+    fi
+
+    kubectl wait --for=condition=available --timeout=30s apiservice/v1beta1.external-secrets.io
+
+    # Wait up to 5 minutes for Cluster Secret Store to deploy
+    tries=0
+    until [ "$tries" -ge 20 ]
+    do
+      kubectl apply -f cluster-secret-store.yaml && break
+      tries=$((tries+1))
+      sleep 15
+    done
+
+    if [ "$tries" -ge 20 ]
+    then
+      echo "Cluster Creation Failed: External Secrets Cluster Secret Store failed to deploy. Please confirm External Secrets deployment"
+      exit 1
+    fi
+
+    echo "Cluster Creation Succeeded: $CLUSTER_NAME"
   env:
   - 'NODE_LOCATION=$_NODE_LOCATION'
   - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
