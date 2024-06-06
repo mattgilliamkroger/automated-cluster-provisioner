@@ -32,28 +32,35 @@ steps:
         --format="value[](commonInstanceMetadata.items.${STORE_ID})" )
     [[ -z "$NODE_LOCATION" ]] && die "NODE_LOCATION cannot be fetched from metadata project"
 
+    # Set parameters from cluster intent
+    export MACHINE_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "machine_project_id" - | csvtool drop 1 -)
+    export FLEET_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "fleet_project_id" - | csvtool drop 1 -)
+    export CLUSTER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "cluster_name" - | csvtool drop 1 -)
+    export LOCATION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "location" - | csvtool drop 1 -)
+    export NODE_COUNT=$(echo "$CLUSTER_INTENT" | csvtool namedcol "node_count" - | csvtool drop 1 -)
+    export CLUSTER_IPV4_CIDR=$(echo "$CLUSTER_INTENT" | csvtool namedcol "cluster_ipv4_cidr" - | csvtool drop 1 -)
+    export SERVICES_IPV4_CIDR=$(echo "$CLUSTER_INTENT" | csvtool namedcol "services_ipv4_cidr" - | csvtool drop 1 -)
+    export EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS=$(echo "$CLUSTER_INTENT" | csvtool namedcol "external_load_balancer_ipv4_address_pools" - | csvtool drop 1 -)
+    export SYNC_REPO=$(echo "$CLUSTER_INTENT" | csvtool namedcol "sync_repo" - | csvtool drop 1 -)
+    export SYNC_BRANCH=$(echo "$CLUSTER_INTENT" | csvtool namedcol "sync_branch" - | csvtool drop 1 -)
+    export SYNC_DIR=$(echo "$CLUSTER_INTENT" | csvtool namedcol "sync_dir" - | csvtool drop 1 -)
+    export SECRETS_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "secrets_project_id" - | csvtool drop 1 -)
+    export GIT_TOKEN_SECRETS_MANAGER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "git_token_secrets_manager_name" - | csvtool drop 1 -)
+    export ES_AGENT_SECRETS_MANAGER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "es_agent_secrets_manager_name" - | csvtool drop 1 -)
+    export CLUSTER_VERSION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "cluster_version" - | csvtool drop 1 -)
+    export RECREATE_ON_DELETE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "recreate_on_delete" - | csvtool drop 1 -)
+
     GDCE_ZONE_STATE=$(gcloud compute project-info describe --project ${METADATA_PROJECT_ID} \
         --format="value[](commonInstanceMetadata.items.${NODE_LOCATION}-GDCE_ZONE_STATE)" )
+
     if [[ "${GDCE_ZONE_STATE}" == "STATE_TURNED_UP_WITH_CLUSTER" ]]; then
-      echo "Zone ${NODE_LOCATION} is already marked as STATE_TURNED_UP_WITH_CLUSTER, exiting."
-      exit 0
+      if [[ "${RECREATE_ON_DELETE}" == "false" ]]; then
+        echo "Zone ${NODE_LOCATION} is already marked as STATE_TURNED_UP_WITH_CLUSTER, exiting."
+        exit 0
+      fi
+
+      echo "Zone ${NODE_LOCATION} is already marked as STATE_TURNED_UP_WITH_CLUSTER, recreating cluster."
     fi
-
-    # Set parameters from cluster intent
-    export MACHINE_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MACHINE_PROJECT_ID" - | csvtool drop 1 -)
-    export FLEET_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "FLEET_PROJECT_ID" - | csvtool drop 1 -)
-    export CLUSTER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "CLUSTER_NAME" - | csvtool drop 1 -)
-    export LOCATION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "LOCATION" - | csvtool drop 1 -)
-    export NODE_COUNT=$(echo "$CLUSTER_INTENT" | csvtool namedcol "NODE_COUNT" - | csvtool drop 1 -)
-    export EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS=$(echo "$CLUSTER_INTENT" | csvtool namedcol "EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS" - | csvtool drop 1 -)
-    export SYNC_REPO=$(echo "$CLUSTER_INTENT" | csvtool namedcol "SYNC_REPO" - | csvtool drop 1 -)
-    export SYNC_BRANCH=$(echo "$CLUSTER_INTENT" | csvtool namedcol "SYNC_BRANCH" - | csvtool drop 1 -)
-    export SYNC_DIR=$(echo "$CLUSTER_INTENT" | csvtool namedcol "SYNC_DIR" - | csvtool drop 1 -)
-    export SECRETS_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "SECRETS_PROJECT_ID" - | csvtool drop 1 -)
-    export GIT_TOKEN_SECRETS_MANAGER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "GIT_TOKEN_SECRETS_MANAGER_NAME" - | csvtool drop 1 -)
-    export ES_AGENT_SECRETS_MANAGER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "ES_AGENT_SECRETS_MANAGER_NAME" - | csvtool drop 1 -)
-    export CLUSTER_VERSION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "CLUSTER_VERSION" - | csvtool drop 1 -)
-
 
     if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
@@ -75,11 +82,14 @@ steps:
       gcloud edge-cloud container clusters create $CLUSTER_NAME \
           --control-plane-node-location=$NODE_LOCATION \
           --control-plane-node-count=$NODE_COUNT \
+          --cluster-ipv4-cidr=$CLUSTER_IPV4_CIDR \
+          --services-ipv4-cidr=$SERVICES_IPV4_CIDR \
           --external-lb-ipv4-address-pools=$EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS \
           --control-plane-shared-deployment-policy=ALLOWED \
           --location=$LOCATION \
           --project=$FLEET_PROJECT_ID \
           --release-channel=NONE \
+          --offline-reboot-ttl=7d \
           --version $CLUSTER_VERSION
 
       [[ $? -ne 0 ]] && die "Cluster Creation Failed: Failure from gcloud \

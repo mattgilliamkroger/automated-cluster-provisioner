@@ -40,14 +40,14 @@ steps:
     [[ -z "$NODE_LOCATION" ]] && die "NODE_LOCATION cannot be fetched from metadata project"
 
     # Set parameters from cluster intent
-    export MACHINE_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MACHINE_PROJECT_ID" - | csvtool drop 1 -)
-    export FLEET_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "FLEET_PROJECT_ID" - | csvtool drop 1 -)
-    export CLUSTER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "CLUSTER_NAME" - | csvtool drop 1 -)
-    export LOCATION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "LOCATION" - | csvtool drop 1 -)
-    export MAINTENANCE_WINDOW_START=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MAINTENANCE_WINDOW_START" - | csvtool drop 1 -)
-    export MAINTENANCE_WINDOW_END=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MAINTENANCE_WINDOW_END" - | csvtool drop 1 -)
-    export MAINTENANCE_WINDOW_RECURRENCE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "MAINTENANCE_WINDOW_RECURRENCE" - | csvtool drop 1 -)
-    export SUBNET_VLANS=$(echo "$CLUSTER_INTENT" | csvtool namedcol "SUBNET_VLANS" - | csvtool drop 1 - | tr -d '"')
+    export MACHINE_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "machine_project_id" - | csvtool drop 1 -)
+    export FLEET_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "fleet_project_id" - | csvtool drop 1 -)
+    export CLUSTER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "cluster_name" - | csvtool drop 1 -)
+    export LOCATION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "location" - | csvtool drop 1 -)
+    export MAINTENANCE_WINDOW_START=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_start" - | csvtool drop 1 -)
+    export MAINTENANCE_WINDOW_END=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_end" - | csvtool drop 1 -)
+    export MAINTENANCE_WINDOW_RECURRENCE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_recurrence" - | csvtool drop 1 -)
+    export SUBNET_VLANS=$(echo "$CLUSTER_INTENT" | csvtool namedcol "subnet_vlans" - | csvtool drop 1 - | tr -d '"')
 
     if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
