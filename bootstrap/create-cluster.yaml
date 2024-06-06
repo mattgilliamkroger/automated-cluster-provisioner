@@ -89,8 +89,8 @@ steps:
           --location=$LOCATION \
           --project=$FLEET_PROJECT_ID \
           --release-channel=NONE \
-          --offline-reboot-ttl=7d \
           --version $CLUSTER_VERSION
+          # --offline-reboot-ttl=7d \
 
       [[ $? -ne 0 ]] && die "Cluster Creation Failed: Failure from gcloud \
           edge-cloud container clusters ..."
