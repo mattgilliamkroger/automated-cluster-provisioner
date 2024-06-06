@@ -155,8 +155,10 @@ def zone_watcher(req: flask.Request):
                 continue
 
             key = f'{zone}-GDCE_ZONE_STATE'
-            
-            if key in metadata and metadata[key] != 'STATE_TURNED_UP':
+            if key not in metadata:
+                logger.error(f'Zone: {zone}, Store: {store_id} state not found in metadata!')
+                continue
+            if metadata[key] != 'STATE_TURNED_UP':
                 if metadata[key] == 'STATE_TURNED_UP_WITH_CLUSTER' and config_zone_info[location][store_id]['recreate_on_delete'] == 'false':
                     logger.info(f'Zone: {zone}, Store: {store_id} has already had a cluster, but specified not to recreate on delete!')
                     continue
