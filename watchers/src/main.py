@@ -234,7 +234,7 @@ def cluster_watcher(req: flask.Request):
 
     cb_client = cloudbuild.CloudBuildClient()
 
-    metadata = get_gcp_compute_engine_metadata(metadata_project_id=params.project_id)
+    metadata = get_gcp_compute_engine_metadata(params.metadata_project_id)
 
     # if cluster not present, skip this cluster
     count = 0
