@@ -238,6 +238,12 @@ resource "google_project_iam_member" "zone-watcher-agent-token-user" {
   member  = google_service_account.zone-watcher-agent.member
 }
 
+resource "google_project_iam_member" "zone-watcher-agent-secret-accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = google_service_account.zone-watcher-agent.member
+}
+
 resource "google_project_iam_member" "zone-watcher-agent-edge-viewer" {
   project = local.project_id_fleet
   role    = "roles/edgecontainer.viewer"
