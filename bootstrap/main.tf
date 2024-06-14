@@ -60,13 +60,6 @@ resource "google_storage_bucket_object" "apply-spec" {
   bucket       = google_storage_bucket.gdce-cluster-provisioner-bucket.id
 }
 
-resource "google_storage_bucket_object" "cluster-secret-store" {
-  name         = "cluster-secret-store.yaml.template"
-  source       = "./cluster-secret-store.yaml.template"
-  content_type = "text/plain"
-  bucket       = google_storage_bucket.gdce-cluster-provisioner-bucket.id
-}
-
 resource "google_cloudbuild_trigger" "create-cluster" {
   location        = var.region
   name            = "gdce-cluster-provisioner-trigger-${var.environment}"
