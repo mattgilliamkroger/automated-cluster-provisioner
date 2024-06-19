@@ -265,7 +265,13 @@ def cluster_watcher(req: flask.Request):
             # Validate the start_time, end_time and rrule string of the maintenance window
             has_update = False
 
-            if (rw.recurrence != config_zone_info[location][store_id]['maintenance_window_recurrence'] or
+            if (not config_zone_info[location][store_id]['maintenance_window_recurrence'] or
+                not config_zone_info[location][store_id]['maintenance_window_start'] or
+                not config_zone_info[location][store_id]['maintenance_window_end']
+                ):
+                # One of the MW properties is not set, so assume no update needs to be made
+                has_update = False
+            elif (rw.recurrence != config_zone_info[location][store_id]['maintenance_window_recurrence'] or
                     rw.window.start_time != parse(config_zone_info[location][store_id]['maintenance_window_start']) or
                     rw.window.end_time != parse(config_zone_info[location][store_id]['maintenance_window_end'])):
                 logger.info("Maintenance window requires update")
