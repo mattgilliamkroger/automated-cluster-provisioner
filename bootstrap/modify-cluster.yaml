@@ -7,7 +7,7 @@ steps:
     set +x
 
     function die() {
-      echo "ERROR: $1"
+      echo "Cluster Modify Failed: $1"
       exit 1
     }
 
@@ -100,7 +100,7 @@ steps:
       fi
     done
 
-    echo "Completed reconciling $NODE_LOCATION"
+    echo "Cluster Modify Succeeded: Completed reconciling $NODE_LOCATION"
 
   env:
   - 'STORE_ID=$_STORE_ID'
