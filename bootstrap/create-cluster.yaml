@@ -131,7 +131,7 @@ steps:
       kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=PlatformHealthy \
           --timeout=20m || die "Platform is not healthy after 20m"
       kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=WorkloadsHealthy \
-          --timeout=20m || die "Workloads are not healthy after 20m"
+          --timeout=2h || die "Workloads are not healthy after 2h"
     fi
     
     gcloud compute project-info add-metadata \
