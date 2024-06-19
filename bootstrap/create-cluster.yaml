@@ -7,7 +7,7 @@ steps:
     set +x
 
     function die() {
-      echo "ERROR: $1"
+      echo "Cluster Creation Failed: $1"
       exit 1
     }
 
@@ -48,6 +48,10 @@ steps:
     export GIT_TOKEN_SECRETS_MANAGER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "git_token_secrets_manager_name" - | csvtool drop 1 -)
     export ES_AGENT_SECRETS_MANAGER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "es_agent_secrets_manager_name" - | csvtool drop 1 -)
     export CLUSTER_VERSION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "cluster_version" - | csvtool drop 1 -)
+    export MAINTENANCE_WINDOW_START=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_start" - | csvtool drop 1 -)
+    export MAINTENANCE_WINDOW_END=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_end" - | csvtool drop 1 -)
+    export MAINTENANCE_WINDOW_RECURRENCE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_recurrence" - | csvtool drop 1 -)
+    export SUBNET_VLANS=$(echo "$CLUSTER_INTENT" | csvtool namedcol "subnet_vlans" - | csvtool drop 1 - | tr -d '"')
     export RECREATE_ON_DELETE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "recreate_on_delete" - | csvtool drop 1 -)
 
     GDCE_ZONE_STATE=$(gcloud compute project-info describe --project ${METADATA_PROJECT_ID} \
@@ -72,6 +76,11 @@ steps:
       gcloud config set api_endpoint_overrides/gkehub $GKEHUB_API_ENDPOINT_OVERRIDE
     fi
 
+    if [ -n "${EDGE_NETWORK_API_ENDPOINT_OVERRIDE:-}" ]; then
+      echo "Setting api_endpoint_overrides/edgenetwork to $EDGE_NETWORK_API_ENDPOINT_OVERRIDE"
+      gcloud config set api_endpoint_overrides/edgenetwork $EDGE_NETWORK_API_ENDPOINT_OVERRIDE
+    fi
+
     gcloud edge-cloud container clusters describe $CLUSTER_NAME --location $LOCATION \
         --project $FLEET_PROJECT_ID
 
@@ -92,10 +101,51 @@ steps:
           --version $CLUSTER_VERSION
           # --offline-reboot-ttl=7d \
 
-      [[ $? -ne 0 ]] && die "Cluster Creation Failed: Failure from gcloud \
-          edge-cloud container clusters ..."
+      [[ $? -ne 0 ]] && die "Failure from gcloud edge-cloud container clusters ..."
 
     fi
+
+    if [[ -z "${MAINTENANCE_WINDOW_START}" || ${MAINTENANCE_WINDOW_END} || \
+            ${MAINTENANCE_WINDOW_RECURRENCE} ]]; then
+      echo "All maintenance window fields are not set, skipping"
+      echo "MAINTENANCE_WINDOW_START=${MAINTENANCE_WINDOW_START}"
+      echo "MAINTENANCE_WINDOW_END=${MAINTENANCE_WINDOW_END}"
+      echo "MAINTENANCE_WINDOW_RECURRENCE=${MAINTENANCE_WINDOW_RECURRENCE}"
+    else
+      gcloud edge-cloud container clusters update $CLUSTER_NAME \
+          --project=$FLEET_PROJECT_ID \
+          --location=$LOCATION \
+          --maintenance-window-start=$MAINTENANCE_WINDOW_START \
+          --maintenance-window-end=$MAINTENANCE_WINDOW_END \
+          --maintenance-window-recurrence=$MAINTENANCE_WINDOW_RECURRENCE
+      [[ $? -ne 0 ]] && die "Maintenance window update failed"
+    fi
+
+    gcloud edge-cloud networking zones init $NODE_LOCATION \
+      --project=$MACHINE_PROJECT_ID \
+      --location=$LOCATION
+
+    [[ $? -ne 0 ]] && die "Zone network failed to initialize"
+
+    for vlan in $(echo $SUBNET_VLANS | csvtool transpose -); do
+      EXISTING_VLAN=$(gcloud edge-cloud networking subnets list --location $LOCATION \
+          --zone $NODE_LOCATION --project $MACHINE_PROJECT_ID \
+          --filter="VLANID=$vlan" --format="json")
+
+      [[ $? -ne 0 ]] && die "Unable to query for subnets"
+
+      if [ "$EXISTING_VLAN" = "[]" ]; then
+        gcloud edge-cloud networking subnets create "network-$vlan" \
+            --vlan-id=$vlan \
+            --network=default \
+            --location=$LOCATION \
+            --zone=$NODE_LOCATION \
+            --project $MACHINE_PROJECT_ID
+        [[ $? -ne 0 ]] && die "Subnet creation failed"
+      else
+        echo "VLAN $vlan already exists"
+      fi
+    done
 
     export KUBECONFIG="$(pwd)/gateway-kubeconfig"
     gcloud container fleet memberships get-credentials $CLUSTER_NAME --project $FLEET_PROJECT_ID
@@ -144,6 +194,7 @@ steps:
   env:
   - 'STORE_ID=$_STORE_ID'
   - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
+  - 'EDGE_NETWORK_API_ENDPOINT_OVERRIDE=$_EDGE_NETWORK_API_ENDPOINT_OVERRIDE'
   - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'
   - 'CLUSTER_INTENT_BUCKET=$_CLUSTER_INTENT_BUCKET'
   - 'SOURCE_OF_TRUTH_REPO=$_SOURCE_OF_TRUTH_REPO'
