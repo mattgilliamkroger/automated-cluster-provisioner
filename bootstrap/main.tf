@@ -150,6 +150,12 @@ resource "google_project_iam_member" "gdce-provisioning-agent-edge-admin" {
   member  = google_service_account.gdce-provisioning-agent.member
 }
 
+resource "google_project_iam_member" "gdce-provisioning-agent-edgenetwork-admin" {
+  project = local.project_id_fleet
+  role    = "roles/edgenetwork.admin"
+  member  = google_service_account.gdce-provisioning-agent.member
+}
+
 resource "google_project_iam_member" "gdce-provisioning-agent-storage-admin" {
   project = var.project_id
   role    = "roles/storage.admin"
