@@ -52,9 +52,10 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_edge_container_api_endpoint_override"></a> [edge\_container\_api\_endpoint\_override](#input\_edge\_container\_api\_endpoint\_override) | Google Distributed Cloud Edge API | `string` | `"https://staging-edgecontainer.sandbox.googleapis.com/"` | no |
+| <a name="input_edge_container_api_endpoint_override"></a> [edge\_container\_api\_endpoint\_override](#input\_edge\_container\_api\_endpoint\_override) | Google Distributed Cloud Edge API | `string` | `"https://edgecontainer.googleapis.com/"` | no |
+| <a name="input_hardware_management_api_endpoint_override"></a> [hardware\_management\_api\_endpoint\_override](#input\_hardware\_management\_api\_endpoint\_override) | Google Distributed Cloud Hardware Management API | `string` | `"https://gdchardwaremanagement.googleapis.com/"` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Deployment environment | `string` | `"stg"` | no |
-| <a name="input_gke_hub_api_endpoint_override"></a> [gke\_hub\_api\_endpoint\_override](#input\_gke\_hub\_api\_endpoint\_override) | Google Distributed Cloud Edge API | `string` | `"https://staging-gkehub.sandbox.googleapis.com/"` | no |
+| <a name="input_gke_hub_api_endpoint_override"></a> [gke\_hub\_api\_endpoint\_override](#input\_gke\_hub\_api\_endpoint\_override) | Google Distributed Cloud Edge API | `string` | `"https://gkehub.googleapis.com/"` | no |
 | <a name="input_node_location"></a> [node\_location](#input\_node\_location) | default GDCE zone used by CloudBuild | `string` | n/a | yes |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | The Google Cloud Platform (GCP) project id in which the solution resources will be provisioned | `string` | `"cloud-alchemists-sandbox"` | no |
 | <a name="input_project_id_fleet"></a> [project\_id\_fleet](#input\_project\_id\_fleet) | Optional id of GCP project hosting the Google Kubernetes Engine (GKE) fleet or Google Distributed Compute Engine (GDCE) machines. Defaults to the value of 'project\_id'. | `string` | `null` | no |

@@ -6,16 +6,53 @@ steps:
     #!/usr/bin/env bash
     set +x
 
+    HARDWARE_MANAGMENT_API_ENDPOINT="https://gdchardwaremanagement.googleapis.com"
+    if [[ -n "${HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE}" ]]; then
+      HARDWARE_MANAGMENT_API_ENDPOINT=${HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE}
+    fi
+    HARDWARE_MANAGMENT_API_VERSION="v1alpha"
+
     function die() {
       echo "Cluster Creation Failed: $1"
       exit 1
     }
 
+    function zone_signal_complete() {
+      zone_store_path=$1
+      [[ -z "${zone_store_path}" ]] && { echo "zone_store_path not provided"; return ; }
+
+      SIGNAL_URI="${HARDWARE_MANAGMENT_API_ENDPOINT}/${HARDWARE_MANAGMENT_API_VERSION}/${zone_store_path}:signal"
+      out=$(curl -f -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "${SIGNAL_URI}" \
+            -d '{"state_signal": "READY_FOR_SITE_TURNUP"}')
+      if [[ $? -ne 0 ]]; then
+        echo "Failed to signal the zone state"
+        return 1
+      fi
+      
+      operation_id=$(echo $out | jq -r .name)
+      URI="${HARDWARE_MANAGMENT_API_ENDPOINT}/${HARDWARE_MANAGMENT_API_VERSION}/${operation_id}"
+      count=0
+      max_retries=10
+      while [[ ${count} -lt ${max_retries} ]]; do
+        is_completed=$(curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+            "${URI}" | jq -r .done)
+        [[ "${is_completed}" != "false" ]] && break
+      done
+    
+    }
+
     [[ -z "${STORE_ID}" ]] && die "STORE_ID not set"
+
+    NODE_LOCATION=${ZONE}
+    [[ -z "$NODE_LOCATION" ]] && die "ZONE not set"
 
     apt-get update
     apt-get install -y gettext-base
     apt-get install -y csvtool
+    apt-get install -y jq
 
     TOKEN=$(gcloud secrets versions access latest --secret=$GIT_SECRET_ID --project $GIT_SECRETS_PROJECT_ID)
     git clone -b $SOURCE_OF_TRUTH_BRANCH https://oauth2:$TOKEN@$SOURCE_OF_TRUTH_REPO repo
@@ -27,10 +64,6 @@ steps:
     export CLUSTER_INTENT_HEADER=$(head -1 cluster-intent-registry.csv)
     export CLUSTER_INTENT="$CLUSTER_INTENT_HEADER"$'\n'"$CLUSTER_INTENT_ROW"
 
-    METADATA_PROJECT_ID=${METADATA_PROJECT_ID:-gdce-turnup}
-    NODE_LOCATION=$(gcloud compute project-info describe --project ${METADATA_PROJECT_ID} \
-        --format="value[](commonInstanceMetadata.items.${STORE_ID})" )
-    [[ -z "$NODE_LOCATION" ]] && die "NODE_LOCATION cannot be fetched from metadata project"
 
     # Set parameters from cluster intent
     export MACHINE_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "machine_project_id" - | csvtool drop 1 -)
@@ -52,19 +85,6 @@ steps:
     export MAINTENANCE_WINDOW_END=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_end" - | csvtool drop 1 -)
     export MAINTENANCE_WINDOW_RECURRENCE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_recurrence" - | csvtool drop 1 -)
     export SUBNET_VLANS=$(echo "$CLUSTER_INTENT" | csvtool namedcol "subnet_vlans" - | csvtool drop 1 - | tr -d '"')
-    export RECREATE_ON_DELETE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "recreate_on_delete" - | csvtool drop 1 -)
-
-    GDCE_ZONE_STATE=$(gcloud compute project-info describe --project ${METADATA_PROJECT_ID} \
-        --format="value[](commonInstanceMetadata.items.${NODE_LOCATION}-GDCE_ZONE_STATE)" )
-
-    if [[ "${GDCE_ZONE_STATE}" == "STATE_TURNED_UP_WITH_CLUSTER" ]]; then
-      if [[ "${RECREATE_ON_DELETE}" == "false" ]]; then
-        echo "Zone ${NODE_LOCATION} is already marked as STATE_TURNED_UP_WITH_CLUSTER, exiting."
-        exit 0
-      fi
-
-      echo "Zone ${NODE_LOCATION} is already marked as STATE_TURNED_UP_WITH_CLUSTER, recreating cluster."
-    fi
 
     if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
@@ -184,25 +204,24 @@ steps:
           --timeout=2h || die "Workloads are not healthy after 2h"
     fi
     
-    gcloud compute project-info add-metadata \
-        --metadata=${NODE_LOCATION}-GDCE_ZONE_STATE=STATE_TURNED_UP_WITH_CLUSTER \
-        --project=$METADATA_PROJECT_ID || \
-        die "Failed to update the cluster status in metadata"
+    
+    zone_signal_complete "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}"
 
     echo "Cluster Creation Succeeded: $CLUSTER_NAME"
 
   env:
   - 'STORE_ID=$_STORE_ID'
+  - 'ZONE=$_ZONE'
   - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
   - 'EDGE_NETWORK_API_ENDPOINT_OVERRIDE=$_EDGE_NETWORK_API_ENDPOINT_OVERRIDE'
   - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'
+  - 'HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE=$_HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE'
   - 'CLUSTER_INTENT_BUCKET=$_CLUSTER_INTENT_BUCKET'
   - 'SOURCE_OF_TRUTH_REPO=$_SOURCE_OF_TRUTH_REPO'
   - 'SOURCE_OF_TRUTH_BRANCH=$_SOURCE_OF_TRUTH_BRANCH'
   - 'SOURCE_OF_TRUTH_PATH=$_SOURCE_OF_TRUTH_PATH'
   - 'GIT_SECRET_ID=$_GIT_SECRET_ID'
   - 'GIT_SECRETS_PROJECT_ID=$_GIT_SECRETS_PROJECT_ID'
-  - 'METADATA_PROJECT_ID=$_METADATA_PROJECT_ID'
 timeout: 14400s
 options:
   logging: CLOUD_LOGGING_ONLY

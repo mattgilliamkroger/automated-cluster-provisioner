@@ -4,15 +4,16 @@ locals {
   cloud_build_substitions = merge(
     { _CLUSTER_INTENT_BUCKET = google_storage_bucket.gdce-cluster-provisioner-bucket.name },
     { _STORE_ID = var.store_id },
+    { _ZONE = var.zone },
     var.edge_container_api_endpoint_override != "" ? { _EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = var.edge_container_api_endpoint_override } : {},
     var.edge_network_api_endpoint_override != "" ? { _EDGE_NETWORK_API_ENDPOINT_OVERRIDE = var.edge_network_api_endpoint_override } : {},
     var.gke_hub_api_endpoint_override != "" ? { _GKEHUB_API_ENDPOINT_OVERRIDE = var.gke_hub_api_endpoint_override } : {},
+    var.hardware_management_api_endpoint_override != "" ? { _HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE = var.hardware_management_api_endpoint_override } : {},
     { _SOURCE_OF_TRUTH_REPO            = var.source_of_truth_repo },
     { _SOURCE_OF_TRUTH_BRANCH          = var.source_of_truth_branch },
     { _SOURCE_OF_TRUTH_PATH            = var.source_of_truth_path },
     { _GIT_SECRET_ID                   = var.git_secret_id },
     { _GIT_SECRETS_PROJECT_ID          = local.project_id_secrets},
-    { _METADATA_PROJECT_ID             = var.project_id_metadata},
   )
   project_id_fleet   = coalesce(var.project_id_fleet, var.project_id)
   project_id_secrets = coalesce(var.project_id_secrets, var.project_id)
@@ -290,12 +291,12 @@ resource "google_cloudfunctions2_function" "zone-watcher" {
       CB_TRIGGER_NAME                      = "gdce-cluster-provisioner-trigger-${var.environment}"
       REGION                               = var.region
       EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = var.edge_container_api_endpoint_override
+      HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE = var.hardware_management_api_endpoint_override
       SOURCE_OF_TRUTH_REPO                 = var.source_of_truth_repo
       SOURCE_OF_TRUTH_BRANCH               = var.source_of_truth_branch
       SOURCE_OF_TRUTH_PATH                 = var.source_of_truth_path
       PROJECT_ID_SECRETS                   = var.project_id_secrets
       GIT_SECRET_ID                        = var.git_secret_id
-      METADATA_PROJECT_ID                  = var.project_id_metadata
     }
     service_account_email = google_service_account.zone-watcher-agent.email
   }
@@ -356,12 +357,12 @@ resource "google_cloudfunctions2_function" "cluster-watcher" {
       REGION                               = var.region
       EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = var.edge_container_api_endpoint_override
       EDGE_NETWORK_API_ENDPOINT_OVERRIDE = var.edge_network_api_endpoint_override
+      HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE = var.hardware_management_api_endpoint_override
       SOURCE_OF_TRUTH_REPO                 = var.source_of_truth_repo
       SOURCE_OF_TRUTH_BRANCH               = var.source_of_truth_branch
       SOURCE_OF_TRUTH_PATH                 = var.source_of_truth_path
       PROJECT_ID_SECRETS                   = var.project_id_secrets
       GIT_SECRET_ID                        = var.git_secret_id
-      METADATA_PROJECT_ID                  = var.project_id_metadata
     }
     service_account_email = google_service_account.zone-watcher-agent.email
   }

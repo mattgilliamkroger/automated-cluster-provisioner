@@ -4,6 +4,12 @@ variable "store_id" {
   default     = null
 }
 
+variable "zone" {
+  description = "Zone name"
+  type        = string
+  default     = null
+}
+
 variable "project_id" {
   description = "The Google Cloud Platform (GCP) project id in which the solution resources will be provisioned"
   type        = string
@@ -17,12 +23,6 @@ variable "project_id_fleet" {
 
 variable "project_id_secrets" {
   description = "Optional id of GCP project containing the Secret Manager entry storing Git repository credentials. Defaults to the value of 'project_id'."
-  default     = null
-  type        = string
-}
-
-variable "project_id_metadata" {
-  description = "Optional id of GCP project containing the metadata for GDCE turnup."
   default     = null
   type        = string
 }

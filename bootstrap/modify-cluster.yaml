@@ -13,6 +13,9 @@ steps:
 
     [[ -z "${STORE_ID}" ]] && die "STORE_ID not set"
 
+    NODE_LOCATION=${ZONE}
+    [[ -z "$NODE_LOCATION" ]] && die "ZONE not set"
+
     apt-get update
     apt-get install -y gettext-base
     apt-get install -y csvtool
@@ -30,14 +33,6 @@ steps:
 
     export CLUSTER_INTENT_HEADER=$(head -1 cluster-intent-registry.csv)
     export CLUSTER_INTENT="$CLUSTER_INTENT_HEADER"$'\n'"$CLUSTER_INTENT_ROW"
-
-    METADATA_PROJECT_ID=${METADATA_PROJECT_ID:-gdce-turnup}
-
-    NODE_LOCATION=$(gcloud compute project-info describe \
-        --format="value[](commonInstanceMetadata.items.${STORE_ID})" \
-        --project ${METADATA_PROJECT_ID})
-
-    [[ -z "$NODE_LOCATION" ]] && die "NODE_LOCATION cannot be fetched from metadata project"
 
     # Set parameters from cluster intent
     export MACHINE_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "machine_project_id" - | csvtool drop 1 -)
@@ -104,6 +99,7 @@ steps:
 
   env:
   - 'STORE_ID=$_STORE_ID'
+  - 'ZONE=$_ZONE'
   - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
   - 'EDGE_NETWORK_API_ENDPOINT_OVERRIDE=$_EDGE_NETWORK_API_ENDPOINT_OVERRIDE'
   - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'

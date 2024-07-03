@@ -14,6 +14,8 @@ from google.api_core import client_options
 from google.cloud import edgecontainer
 from google.cloud import edgenetwork
 from google.cloud import secretmanager
+from google.cloud import gdchardwaremanagement_v1alpha
+from google.cloud.gdchardwaremanagement_v1alpha import Zone
 from google.cloud.devtools import cloudbuild
 from dateutil.parser import parse
 from typing import Dict
@@ -32,7 +34,6 @@ class WatcherParameters:
     source_of_truth_branch: str
     source_of_truth_path: str
     cloud_build_trigger: str
-    metadata_project_id: str
 
 
 def get_parameters_from_environment():
@@ -43,7 +44,6 @@ def get_parameters_from_environment():
     source_of_truth_repo = os.environ.get("SOURCE_OF_TRUTH_REPO")
     source_of_truth_branch = os.environ.get("SOURCE_OF_TRUTH_BRANCH")
     source_of_truth_path = os.environ.get("SOURCE_OF_TRUTH_PATH")
-    metadata_project_id = os.environ.get("METADATA_PROJECT_ID","gdce-turnup")
 
 
     cb_trigger = f'projects/{proj_id}/locations/{region}/triggers/{os.environ.get("CB_TRIGGER_NAME")}'
@@ -77,7 +77,6 @@ def get_parameters_from_environment():
         source_of_truth_repo=source_of_truth_repo,
         source_of_truth_branch=source_of_truth_branch,
         source_of_truth_path=source_of_truth_path,
-        metadata_project_id=metadata_project_id,
     )
 
 
@@ -128,19 +127,19 @@ def zone_watcher(req: flask.Request):
             else:
                 machine_lists[m.zone].append(m)
 
-    metadata = get_gcp_compute_engine_metadata(params.metadata_project_id)
-
     # if cluster already present in the zone, skip this zone
     # method: check all the machines in the zone, and check if "hosted_node" has any value in it
     count = 0
     for location in config_zone_info:
         for store_id in config_zone_info[location]:
-            if store_id in metadata:
-                zone = metadata[store_id]
-            else:
-                logger.info(f'Zone for store {store_id} is not available yet, skipping.')
+            machine_project_id = config_zone_info[location][store_id]['machine_project_id']
+            zone_store_id = f'projects/{machine_project_id}/locations/{location}/zones/{store_id}'
+            try:
+                zone = get_zone_name(zone_store_id)
+            except Exception as e:
+                logger.error(f'Zone for store {store_id} cannot be found, skipping.', exc_info=True)
                 continue
-
+            
             if zone not in machine_lists:
                 logger.warning(f'No machine found in zone {zone}')
                 continue
@@ -153,24 +152,17 @@ def zone_watcher(req: flask.Request):
                     break
             if has_cluster:
                 continue
-
-            key = f'{zone}-GDCE_ZONE_STATE'
-            if key not in metadata:
-                logger.error(f'Zone: {zone}, Store: {store_id} state not found in metadata!')
+            
+            if not verify_zone_state(zone_store_id, config_zone_info[location][store_id]['recreate_on_delete']):
+                logger.info(f'Zone: {zone}, Store: {store_id} is not in expted state! skipping..')
                 continue
-            if metadata[key] != 'STATE_TURNED_UP':
-                if metadata[key] == 'STATE_TURNED_UP_WITH_CLUSTER' and config_zone_info[location][store_id]['recreate_on_delete'] == 'false':
-                    logger.info(f'Zone: {zone}, Store: {store_id} has already had a cluster, but specified not to recreate on delete!')
-                    continue
-                elif metadata[key] != 'STATE_TURNED_UP_WITH_CLUSTER':
-                    logger.info(f'Zone: {zone}, Store: {store_id} is not turned up yet!')
-                    continue
 
             # trigger cloudbuild to initiate the cluster building
             repo_source = cloudbuild.RepoSource()
             repo_source.branch_name = config_zone_info[location][store_id]['sync_branch']
             repo_source.substitutions = {
-                "_STORE_ID": store_id
+                "_STORE_ID": store_id,
+                "_ZONE": zone
             }
             req = cloudbuild.RunBuildTriggerRequest(
                 name=params.cloud_build_trigger,
@@ -234,8 +226,6 @@ def cluster_watcher(req: flask.Request):
 
     cb_client = cloudbuild.CloudBuildClient()
 
-    metadata = get_gcp_compute_engine_metadata(params.metadata_project_id)
-
     # if cluster not present, skip this cluster
     count = 0
     for location in config_zone_info:
@@ -248,10 +238,14 @@ def cluster_watcher(req: flask.Request):
         res_pager_c = ec_client.list_clusters(req_c)
         cl_list = [c for c in res_pager_c]  # all the clusters in the location
         for store_id in config_zone_info[location]:
-            if store_id not in metadata:
-                logger.error(f'Zone info not found for store {store_id}')
+            machine_project_id = config_zone_info[location][store_id]['machine_project_id']
+            zone_store_id = f'projects/{machine_project_id}/locations/{location}/zones/{store_id}'
+            try:
+                zone = get_zone_name(zone_store_id)
+            except Exception as e:
+                logger.error(f'Zone for store {store_id} cannot be found, skipping.', exc_info=True)
                 continue
-            zone = metadata[store_id]
+
             # filter the cluster in the GDCE zone, should be at most 1
             zone_cluster_list = [c for c in cl_list if c.control_plane.local.node_location
                                  == zone]
@@ -318,7 +312,8 @@ def cluster_watcher(req: flask.Request):
             repo_source = cloudbuild.RepoSource()
             repo_source.branch_name = config_zone_info[location][store_id]['sync_branch']
             repo_source.substitutions = {
-                "_STORE_ID": store_id
+                "_STORE_ID": store_id,
+                "_ZONE": zone
             }
             req = cloudbuild.RunBuildTriggerRequest(
                 name=params.cloud_build_trigger,
@@ -353,6 +348,62 @@ def get_gcp_compute_engine_metadata(project: str) -> Dict[str, str]:
     response = client.get(request=request)
     metadata = { item.key: item.value for item in response.common_instance_metadata.items }
     return metadata
+
+
+def get_zone(store_id: str) -> Zone:
+    """Return Zone info.
+    Args:
+      store_id: name of zone which is store id usually
+    Returns:
+      Zone object
+    """
+    hardware_management_api_endpoint_override = os.environ.get('HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE')
+    if hardware_management_api_endpoint_override:
+        op = client_options.ClientOptions(api_endpoint=urlparse(hardware_management_api_endpoint_override).netloc)
+        client = gdchardwaremanagement_v1alpha.GDCHardwareManagementClient(client_options=op)
+    else:
+        client = gdchardwaremanagement_v1alpha.GDCHardwareManagementClient()
+
+    return client.get_zone(name=store_id)
+
+
+def get_zone_name(store_id: str) -> str:
+    """Return Zone info.
+    Args:
+      store_id: name of zone which is store id usually
+    Returns:
+      rack zone name
+    """
+    return get_zone(store_id).globally_unique_id
+
+
+def get_zone_state(store_id: str) -> Zone.State :
+    """Return Zone info.
+    Args:
+      store_id: name of zone which is store id usually
+    Returns:
+      zone state
+    """
+    return get_zone(store_id).state
+
+
+def verify_zone_state(store_id: str, recreate_on_delete: bool) -> bool:
+    """Checks if zone is in right state to create.
+    Args:
+        store_id: name of zone which is store id usually
+        recreate_on_delete: true if cluster needs to be recreated on delete.
+    Returns:
+        if cluster can be created or not
+    """
+    state = get_zone_state(store_id)
+    if state == Zone.State.READY_FOR_CUSTOMER_FACTORY_TURNUP_CHECKS or state == Zone.State.CUSTOMER_FACTORY_TURNUP_CHECKS_FAILED:
+        return True
+
+    if state == Zone.State.READY_FOR_SITE_TURNUP and recreate_on_delete:
+        logger.info(f'Store: {store_id} was already setup, but specified to recreate on delete!')
+        return True
+    
+    return False
 
 
 class ClusterIntentReader:
