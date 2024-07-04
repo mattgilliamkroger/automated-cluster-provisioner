@@ -106,6 +106,11 @@ variable "gke_hub_api_endpoint_override" {
   default     = ""
 }
 
+variable "hardware_management_api_endpoint_override" {
+  description = "Google Distributed Hardware Management API"
+  default     = ""
+}
+
 variable "source_of_truth_repo" {
   description = "Source of truth repository"
   default = "gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/cluster-intent-registry"

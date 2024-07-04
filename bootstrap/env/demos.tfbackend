@@ -1,0 +1,2 @@
+bucket = "gdce-cluster-provisioner-tf-demo"
+prefix = "prod"

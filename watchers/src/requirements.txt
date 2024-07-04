@@ -2,6 +2,7 @@ functions-framework==3.*
 google-cloud-build
 google-cloud-edgecontainer
 google-cloud-edgenetwork
+google-cloud-gdchardwaremanagement
 google-cloud-storage
 google-cloud-compute
 google-cloud-secret-manager
