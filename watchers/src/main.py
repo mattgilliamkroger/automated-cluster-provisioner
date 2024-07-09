@@ -146,14 +146,27 @@ def zone_watcher(req: flask.Request):
                 logger.warning(f'No machine found in zone {zone}')
                 continue
 
-            has_cluster = False
+            count_of_free_machines=0
             for m in machine_lists[zone]:
                 if len(m.hosted_node.strip()) > 0:  # if there is any value, consider there is a cluster
                     logger.info(f'ZONE {zone}: {m.name} already used by {m.hosted_node}')
-                    has_cluster = True
-                    break
-            if has_cluster:
+                else:
+                    logger.info(f'ZONE {zone}: {m.name} is a free node')
+                    count_of_free_machines=count_of_free_machines+1
+            if count_of_free_machines>=int(config_zone_info[location][store_id]["node_count"]):
+                logger.info(f'ZONE {zone}: There are enough free  nodes to create cluster')
+            else:
+                logger.info(f'ZONE {zone}: Not enough free  nodes to create cluster. Need {str(config_zone_info[location][store_id]["node_count"])} but have {str(count_of_free_machines)} free nodes')
                 continue
+
+            # has_cluster = False
+            # for m in machine_lists[zone]:
+            #     if len(m.hosted_node.strip()) > 0:  # if there is any value, consider there is a cluster
+            #         logger.info(f'ZONE {zone}: {m.name} already used by {m.hosted_node}')
+            #         has_cluster = True
+            #         break
+            # if has_cluster:
+            #     continue
             
             if zone_name_retrieved_from_api and not verify_zone_state(zone_store_id, config_zone_info[location][store_id]['recreate_on_delete']):
                 logger.info(f'Zone: {zone}, Store: {store_id} is not in expected state! skipping..')
