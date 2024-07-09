@@ -85,6 +85,7 @@ steps:
     export MAINTENANCE_WINDOW_END=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_end" - | csvtool drop 1 -)
     export MAINTENANCE_WINDOW_RECURRENCE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_recurrence" - | csvtool drop 1 -)
     export SUBNET_VLANS=$(echo "$CLUSTER_INTENT" | csvtool namedcol "subnet_vlans" - | csvtool drop 1 - | tr -d '"')
+    export ZONE_NAME_FROM_SOT=$(echo "$CLUSTER_INTENT" | csvtool namedcol "zone_name" - | csvtool drop 1 -)
 
     if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
@@ -204,8 +205,11 @@ steps:
           --timeout=2h || die "Workloads are not healthy after 2h"
     fi
     
-    
-    zone_signal_complete "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}"
+    if [[ -z $ZONE_NAME_FROM_SOT ]]; then
+      echo "Zone name is defined in SOT... skipping zone signal completion."
+    else
+      zone_signal_complete "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}"
+    fi
 
     echo "Cluster Creation Succeeded: $CLUSTER_NAME"
 
