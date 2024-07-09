@@ -85,10 +85,7 @@ def zone_watcher(req: flask.Request):
     params = get_parameters_from_environment()
 
     logger.info(f'Running zone watcher for: proj_id={params.project_id},sot={params.source_of_truth_repo}/{params.source_of_truth_branch}/{params.source_of_truth_path}, cb_trigger={params.cloud_build_trigger}')
-
-    # Get the CSV file from GCS containing target zones
-    # STORE_ID	MACHINE_PROJECT_ID	FLEET_PROJECT_ID	CLUSTER_NAME	LOCATION	NODE_COUNT	EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS	SYNC_REPO	SYNC_BRANCH	SYNC_DIR	GIT_TOKEN_SECRETS_MANAGER_NAME
-    # us-25349	cloud-alchemist-machines	gmec-developers-1	lcp-den29	us-central1	1	172.17.34.96-172.17.34.100	https://gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/primary-root-repo	main	/config/clusters/den29/meta	shyguy-internal-pat
+    
     config_zone_info = {}
     token = get_git_token_from_secrets_manager(params.secrets_project_id, params.git_secret_id)
     intent_reader = ClusterIntentReader(params.source_of_truth_repo, params.source_of_truth_branch, params.source_of_truth_path, token)
@@ -135,7 +132,12 @@ def zone_watcher(req: flask.Request):
             machine_project_id = config_zone_info[location][store_id]['machine_project_id']
             zone_store_id = f'projects/{machine_project_id}/locations/{location}/zones/{store_id}'
             try:
-                zone = get_zone_name(zone_store_id)
+                if config_zone_info[location][store_id]['zone_name']:
+                    zone = config_zone_info[location][store_id]['zone_name']
+                    zone_name_retrieved_from_api = False
+                else:
+                    zone = get_zone_name(zone_store_id)
+                    zone_name_retrieved_from_api = True
             except Exception as e:
                 logger.error(f'Zone for store {store_id} cannot be found, skipping.', exc_info=True)
                 continue
@@ -153,8 +155,8 @@ def zone_watcher(req: flask.Request):
             if has_cluster:
                 continue
             
-            if not verify_zone_state(zone_store_id, config_zone_info[location][store_id]['recreate_on_delete']):
-                logger.info(f'Zone: {zone}, Store: {store_id} is not in expted state! skipping..')
+            if zone_name_retrieved_from_api and not verify_zone_state(zone_store_id, config_zone_info[location][store_id]['recreate_on_delete']):
+                logger.info(f'Zone: {zone}, Store: {store_id} is not in expected state! skipping..')
                 continue
 
             # trigger cloudbuild to initiate the cluster building
@@ -191,10 +193,6 @@ def cluster_watcher(req: flask.Request):
     logger.info(f'proj_id = {params.project_id}')
     logger.info(f'cb_trigger = {params.cloud_build_trigger}')
 
-    # Get the CSV file from GCS containing target zones
-    # "STORE_ID",              "MACHINE_PROJECT_ID",           "FLEET_PROJECT_ID",         "CLUSTER_NAME", "LOCATION", "NODE_COUNT",   "EXTERNAL_LOAD_BALANCER_IPV4_ADDRESS_POOLS","SYNC_REPO",                                                                                "SYNC_BRANCH",  "SYNC_DIR",                     "GIT_TOKEN_SECRETS_MANAGER_NAME",   "ES_AGENT_SECRETS_MANAGER_NAME", "SUBNET_VLANS",    "SUBNET_IPV4_ADDRESSES",    "MAINTENANCE_WINDOW_START", "MAINTENANCE_WINDOW_END",   "MAINTENANCE_WINDOW_RECURRENCE"
-    # "usden25349",  "cloud-alchemists-machines",    "cloud-alchemists-sandbox", "lcp-den29",    "us-central1",  "1",        "172.17.34.96-172.17.34.100",               "https://gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/primary-root-repo","main",        "/config/clusters/den29/meta",  "shyguy-internal-pat",              "external-secret-agent-key"
-    # "usden59566",  "edgesites-baremetal-lab-qual", "cloud-alchemists-sandbox", "lcp-den84",    "us-central1",  "3",        "172.20.4.240-172.20.4.248",                "https://gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/primary-root-repo","main",        "/config/clusters/den84/meta",  "shyguy-internal-pat",              "external-secret-agent-key"
     config_zone_info = {}
     token = get_git_token_from_secrets_manager(params.secrets_project_id, params.git_secret_id)
     intent_reader = ClusterIntentReader(params.source_of_truth_repo, params.source_of_truth_branch, params.source_of_truth_path, token)
@@ -241,7 +239,10 @@ def cluster_watcher(req: flask.Request):
             machine_project_id = config_zone_info[location][store_id]['machine_project_id']
             zone_store_id = f'projects/{machine_project_id}/locations/{location}/zones/{store_id}'
             try:
-                zone = get_zone_name(zone_store_id)
+                if config_zone_info[location][store_id]['zone_name']:
+                    zone = config_zone_info[location][store_id]['zone_name']
+                else:
+                    zone = get_zone_name(zone_store_id)
             except Exception as e:
                 logger.error(f'Zone for store {store_id} cannot be found, skipping.', exc_info=True)
                 continue
