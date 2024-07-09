@@ -205,7 +205,7 @@ steps:
           --timeout=2h || die "Workloads are not healthy after 2h"
     fi
     
-    if [[ -z $ZONE_NAME_FROM_SOT ]]; then
+    if [[ -n "${ZONE_NAME_FROM_SOT}" ]]; then
       echo "Zone name is defined in SOT... skipping zone signal completion."
     else
       zone_signal_complete "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}"
