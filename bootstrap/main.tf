@@ -129,18 +129,6 @@ resource "google_cloudbuild_trigger" "modify-cluster" {
   }
 }
 
-data "archive_file" "modify-cluster" {
-  type        = "zip"
-  output_path = "/tmp/modify_cluster.zip"
-  source_file = "./modify-cluster.yaml"
-}
-
-resource "google_storage_bucket_object" "modify-cluster-src" {
-  name   = "modify_cluster.zip"
-  bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
-  source = data.archive_file.modify-cluster.output_path
-}
-
 resource "google_service_account" "gdce-provisioning-agent" {
   account_id = "gdce-prov-agent-${var.environment}"
 }
@@ -185,16 +173,6 @@ resource "google_project_iam_member" "gdce-provisioning-agent-hub-gateway" {
   project = local.project_id_fleet
   role    = "roles/gkehub.gatewayAdmin"
   member  = google_service_account.gdce-provisioning-agent.member
-}
-
-resource "google_service_account" "es-agent" {
-  account_id = "es-agent-${var.environment}"
-}
-
-resource "google_project_iam_member" "es-agent-secret-accessor" {
-  project = local.project_id_secrets
-  role    = "roles/secretmanager.secretAccessor"
-  member  = google_service_account.es-agent.member
 }
 
 data "archive_file" "watcher-src" {
