@@ -31,7 +31,7 @@ steps:
         echo "Failed to signal the zone state"
         return 1
       fi
-      
+
       operation_id=$(echo $out | jq -r .name)
       URI="${HARDWARE_MANAGMENT_API_ENDPOINT}/${HARDWARE_MANAGMENT_API_VERSION}/${operation_id}"
       count=0
@@ -41,7 +41,7 @@ steps:
             "${URI}" | jq -r .done)
         [[ "${is_completed}" != "false" ]] && break
       done
-    
+
     }
 
     [[ -z "${STORE_ID}" ]] && die "STORE_ID not set"
@@ -119,8 +119,8 @@ steps:
           --location=$LOCATION \
           --project=$FLEET_PROJECT_ID \
           --release-channel=NONE \
-          --version $CLUSTER_VERSION
-          # --offline-reboot-ttl=7d \
+          --version $CLUSTER_VERSION \
+          --offline-reboot-ttl=7d
 
       [[ $? -ne 0 ]] && die "Failure from gcloud edge-cloud container clusters ..."
 
