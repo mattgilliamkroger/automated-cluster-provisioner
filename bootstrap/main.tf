@@ -1,6 +1,6 @@
 locals {
-  cloud_build_inline_create_cluster = yamldecode(file("create-cluster.yaml"))
-  cloud_build_inline_modify_cluster = yamldecode(file("modify-cluster.yaml"))
+  cloud_build_inline_create_cluster = yamldecode(file("${path.module}/create-cluster.yaml"))
+  cloud_build_inline_modify_cluster = yamldecode(file("${path.module}/modify-cluster.yaml"))
   cloud_build_substitions = merge(
     { _CLUSTER_INTENT_BUCKET = google_storage_bucket.gdce-cluster-provisioner-bucket.name },
     { _STORE_ID = var.store_id },
@@ -56,7 +56,7 @@ resource "google_storage_bucket" "gdce-cluster-provisioner-bucket" {
 
 resource "google_storage_bucket_object" "apply-spec" {
   name         = "apply-spec.yaml.template"
-  source       = "./apply-spec.yaml.template"
+  source       = "${path.module}/apply-spec.yaml.template"
   content_type = "text/plain"
   bucket       = google_storage_bucket.gdce-cluster-provisioner-bucket.id
 }
