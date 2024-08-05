@@ -61,6 +61,13 @@ resource "google_storage_bucket_object" "apply-spec" {
   bucket       = google_storage_bucket.gdce-cluster-provisioner-bucket.id
 }
 
+resource "google_storage_bucket_object" "auth-config" {
+  name         = "auth-config.yaml"
+  source       = "${path.module}/auth-config.yaml"
+  content_type = "text/plain"
+  bucket       = google_storage_bucket.gdce-cluster-provisioner-bucket.id
+}
+
 resource "google_cloudbuild_trigger" "create-cluster" {
   location        = var.region
   name            = "gdce-cluster-provisioner-trigger-${var.environment}"

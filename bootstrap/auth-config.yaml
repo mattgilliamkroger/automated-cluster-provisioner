@@ -1,0 +1,5 @@
+spec:
+  authentication:
+  - name: google-authentication-method
+    google:
+      disable: false

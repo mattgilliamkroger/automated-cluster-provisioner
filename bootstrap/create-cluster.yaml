@@ -79,7 +79,6 @@ steps:
     export SYNC_DIR=$(echo "$CLUSTER_INTENT" | csvtool namedcol "sync_dir" - | csvtool drop 1 -)
     export SECRETS_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "secrets_project_id" - | csvtool drop 1 -)
     export GIT_TOKEN_SECRETS_MANAGER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "git_token_secrets_manager_name" - | csvtool drop 1 -)
-    export ES_AGENT_SECRETS_MANAGER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "es_agent_secrets_manager_name" - | csvtool drop 1 -)
     export CLUSTER_VERSION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "cluster_version" - | csvtool drop 1 -)
     export MAINTENANCE_WINDOW_START=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_start" - | csvtool drop 1 -)
     export MAINTENANCE_WINDOW_END=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_end" - | csvtool drop 1 -)
@@ -172,6 +171,7 @@ steps:
     gcloud container fleet memberships get-credentials $CLUSTER_NAME --project $FLEET_PROJECT_ID
 
     gsutil cp gs://$CLUSTER_INTENT_BUCKET/apply-spec.yaml.template .
+    gsutil cp gs://$CLUSTER_INTENT_BUCKET/auth-config.yaml .
 
     envsubst < apply-spec.yaml.template > apply-spec.yaml
 
@@ -186,6 +186,9 @@ steps:
 
     gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME \
         --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
+
+    gcloud container fleet identity-service apply --membership=$CLUSTER_NAME \
+        --config=./auth-config.yaml --project $FLEET_PROJECT_ID
 
     if [ -z "${SKIP_HEALTH_CHECK}" ]; then
       count=0
