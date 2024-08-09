@@ -182,9 +182,19 @@ resource "google_project_iam_member" "gdce-provisioning-agent-hub-gateway" {
   member  = google_service_account.gdce-provisioning-agent.member
 }
 
+// Generating a random_uuid based on the md5s of all files in the watchers directory.
+// This avoids situations in temporary workspaces where the file may not be available
+//   on subsequent `tf plan/apply` or carried over from the plan to the apply. 
+resource "random_uuid" "watcher-src-uuid" {
+  keepers = {
+    for file in fileset("../watchers/src", "**/*"):
+    file => filemd5("../watchers/src/${file}")
+  }
+}
+
 data "archive_file" "watcher-src" {
   type        = "zip"
-  output_path = "/tmp/watcher_src.zip"
+  output_path = "/tmp/watcher_src-${resource.random_uuid.watcher-src-uuid.result}.zip"
   source_dir  = "../watchers/src/"
 }
 
