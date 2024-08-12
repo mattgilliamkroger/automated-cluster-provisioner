@@ -9,11 +9,11 @@ locals {
     var.edge_network_api_endpoint_override != "" ? { _EDGE_NETWORK_API_ENDPOINT_OVERRIDE = var.edge_network_api_endpoint_override } : {},
     var.gke_hub_api_endpoint_override != "" ? { _GKEHUB_API_ENDPOINT_OVERRIDE = var.gke_hub_api_endpoint_override } : {},
     var.hardware_management_api_endpoint_override != "" ? { _HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE = var.hardware_management_api_endpoint_override } : {},
-    { _SOURCE_OF_TRUTH_REPO            = var.source_of_truth_repo },
-    { _SOURCE_OF_TRUTH_BRANCH          = var.source_of_truth_branch },
-    { _SOURCE_OF_TRUTH_PATH            = var.source_of_truth_path },
-    { _GIT_SECRET_ID                   = var.git_secret_id },
-    { _GIT_SECRETS_PROJECT_ID          = local.project_id_secrets},
+    { _SOURCE_OF_TRUTH_REPO = var.source_of_truth_repo },
+    { _SOURCE_OF_TRUTH_BRANCH = var.source_of_truth_branch },
+    { _SOURCE_OF_TRUTH_PATH = var.source_of_truth_path },
+    { _GIT_SECRET_ID = var.git_secret_id },
+    { _GIT_SECRETS_PROJECT_ID = local.project_id_secrets },
   )
   project_id_fleet   = coalesce(var.project_id_fleet, var.project_id)
   project_id_secrets = coalesce(var.project_id_secrets, var.project_id)
@@ -106,7 +106,7 @@ resource "google_cloudbuild_trigger" "modify-cluster" {
   location        = var.region
   name            = "gdce-cluster-reconciler-trigger-${var.environment}"
   service_account = "projects/${var.project_id}/serviceAccounts/${google_service_account.gdce-provisioning-agent.email}"
-  substitutions = local.cloud_build_substitions
+  substitutions   = local.cloud_build_substitions
 
   build {
     substitutions = local.cloud_build_substitions
@@ -187,7 +187,7 @@ resource "google_project_iam_member" "gdce-provisioning-agent-hub-gateway" {
 //   on subsequent `tf plan/apply` or carried over from the plan to the apply. 
 resource "random_uuid" "watcher-src-uuid" {
   keepers = {
-    for file in fileset("../watchers/src", "**/*"):
+    for file in fileset("../watchers/src", "**/*") :
     file => filemd5("../watchers/src/${file}")
   }
 }
@@ -223,14 +223,14 @@ resource "google_project_iam_member" "zone-watcher-agent-cloud-build-editor" {
 
 resource "google_service_account_iam_member" "gdce-provisioning-agent-token-user" {
   service_account_id = google_service_account.gdce-provisioning-agent.name
-  role = "roles/iam.serviceAccountUser"
-  member = "serviceAccount:${google_service_account.zone-watcher-agent.email}"
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.zone-watcher-agent.email}"
 }
 
 resource "google_service_account_iam_member" "gdce-provisioning-agent-impersonate-sa" {
-  role    = "roles/iam.serviceAccountTokenCreator"
-  service_account_id  = google_service_account.gdce-provisioning-agent.name
-  member = "serviceAccount:${google_service_account.zone-watcher-agent.email}"
+  role               = "roles/iam.serviceAccountTokenCreator"
+  service_account_id = google_service_account.gdce-provisioning-agent.name
+  member             = "serviceAccount:${google_service_account.zone-watcher-agent.email}"
 }
 
 resource "google_project_iam_member" "zone-watcher-agent-secret-accessor" {
@@ -243,6 +243,29 @@ resource "google_project_iam_member" "zone-watcher-agent-edge-viewer" {
   project = local.project_id_fleet
   role    = "roles/edgecontainer.viewer"
   member  = google_service_account.zone-watcher-agent.member
+}
+
+resource "google_service_account" "zone-watcher-builder" {
+  account_id   = "zone-watcher-builder-${var.environment}"
+  display_name = "Zone Watcher Builder Service Account"
+}
+
+resource "google_project_iam_member" "zone-watcher-builder-object-viewer" {
+  project = var.project_id
+  role    = "roles/storage.objectViewer"
+  member  = google_service_account.zone-watcher-builder.member
+}
+
+resource "google_project_iam_member" "zone-watcher-builder-log-writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = google_service_account.zone-watcher-builder.member
+}
+
+resource "google_project_iam_member" "zone-watcher-builder-registry-writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
+  member  = google_service_account.zone-watcher-builder.member
 }
 
 # Image pulling from artifact registry
@@ -269,11 +292,12 @@ resource "google_cloudfunctions2_function" "zone-watcher" {
     environment_variables = {
       "SOURCE_SHA" = data.archive_file.watcher-src.output_sha # https://github.com/hashicorp/terraform-provider-google/issues/1938
     }
+    service_account = google_service_account.zone-watcher-builder.id
     source {
       storage_source {
         bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
         object = google_storage_bucket_object.watcher-src.name
-     }
+      }
     }
   }
 
@@ -282,16 +306,16 @@ resource "google_cloudfunctions2_function" "zone-watcher" {
     available_memory   = "512M"
     timeout_seconds    = 60
     environment_variables = {
-      GOOGLE_CLOUD_PROJECT                 = var.project_id,
-      CB_TRIGGER_NAME                      = "gdce-cluster-provisioner-trigger-${var.environment}"
-      REGION                               = var.region
-      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = var.edge_container_api_endpoint_override
+      GOOGLE_CLOUD_PROJECT                     = var.project_id,
+      CB_TRIGGER_NAME                          = "gdce-cluster-provisioner-trigger-${var.environment}"
+      REGION                                   = var.region
+      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE     = var.edge_container_api_endpoint_override
       HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE = var.hardware_management_api_endpoint_override
-      SOURCE_OF_TRUTH_REPO                 = var.source_of_truth_repo
-      SOURCE_OF_TRUTH_BRANCH               = var.source_of_truth_branch
-      SOURCE_OF_TRUTH_PATH                 = var.source_of_truth_path
-      PROJECT_ID_SECRETS                   = var.project_id_secrets
-      GIT_SECRET_ID                        = var.git_secret_id
+      SOURCE_OF_TRUTH_REPO                     = var.source_of_truth_repo
+      SOURCE_OF_TRUTH_BRANCH                   = var.source_of_truth_branch
+      SOURCE_OF_TRUTH_PATH                     = var.source_of_truth_path
+      PROJECT_ID_SECRETS                       = var.project_id_secrets
+      GIT_SECRET_ID                            = var.git_secret_id
     }
     service_account_email = google_service_account.zone-watcher-agent.email
   }
@@ -334,6 +358,7 @@ resource "google_cloudfunctions2_function" "cluster-watcher" {
     environment_variables = {
       "SOURCE_SHA" = data.archive_file.watcher-src.output_sha # https://github.com/hashicorp/terraform-provider-google/issues/1938
     }
+    service_account = google_service_account.zone-watcher-builder.id
     source {
       storage_source {
         bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
@@ -347,17 +372,17 @@ resource "google_cloudfunctions2_function" "cluster-watcher" {
     available_memory   = "256M"
     timeout_seconds    = 60
     environment_variables = {
-      GOOGLE_CLOUD_PROJECT                 = var.project_id,
-      CB_TRIGGER_NAME                      = "gdce-cluster-reconciler-trigger-${var.environment}"
-      REGION                               = var.region
-      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = var.edge_container_api_endpoint_override
-      EDGE_NETWORK_API_ENDPOINT_OVERRIDE = var.edge_network_api_endpoint_override
+      GOOGLE_CLOUD_PROJECT                     = var.project_id,
+      CB_TRIGGER_NAME                          = "gdce-cluster-reconciler-trigger-${var.environment}"
+      REGION                                   = var.region
+      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE     = var.edge_container_api_endpoint_override
+      EDGE_NETWORK_API_ENDPOINT_OVERRIDE       = var.edge_network_api_endpoint_override
       HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE = var.hardware_management_api_endpoint_override
-      SOURCE_OF_TRUTH_REPO                 = var.source_of_truth_repo
-      SOURCE_OF_TRUTH_BRANCH               = var.source_of_truth_branch
-      SOURCE_OF_TRUTH_PATH                 = var.source_of_truth_path
-      PROJECT_ID_SECRETS                   = var.project_id_secrets
-      GIT_SECRET_ID                        = var.git_secret_id
+      SOURCE_OF_TRUTH_REPO                     = var.source_of_truth_repo
+      SOURCE_OF_TRUTH_BRANCH                   = var.source_of_truth_branch
+      SOURCE_OF_TRUTH_PATH                     = var.source_of_truth_path
+      PROJECT_ID_SECRETS                       = var.project_id_secrets
+      GIT_SECRET_ID                            = var.git_secret_id
     }
     service_account_email = google_service_account.zone-watcher-agent.email
   }

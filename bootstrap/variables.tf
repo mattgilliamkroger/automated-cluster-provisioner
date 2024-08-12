@@ -113,20 +113,20 @@ variable "hardware_management_api_endpoint_override" {
 
 variable "source_of_truth_repo" {
   description = "Source of truth repository"
-  default = "gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/cluster-intent-registry"
+  default     = "gitlab.com/gcp-solutions-public/retail-edge/gdce-shyguy-internal/cluster-intent-registry"
 }
 
 variable "source_of_truth_branch" {
   description = "Source of truth branch"
-  default = "main"
+  default     = "main"
 }
 
 variable "source_of_truth_path" {
   description = "Path to cluster intent registry file"
-  default = "source_of_truth.csv"
+  default     = "source_of_truth.csv"
 }
 
 variable "git_secret_id" {
   description = "Secrets manager secret holding git token to pull source of truth"
-  default = "shyguy-internal-pat"
+  default     = "shyguy-internal-pat"
 }
