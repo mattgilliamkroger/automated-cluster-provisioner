@@ -182,6 +182,12 @@ resource "google_project_iam_member" "gdce-provisioning-agent-hub-gateway" {
   member  = google_service_account.gdce-provisioning-agent.member
 }
 
+resource "google_project_iam_member" "gdce-provisioning-agent-hardware-management-admin" {
+  project = local.project_id_fleet
+  role    = "roles/gdchardwaremanagement.admin"
+  member  = google_service_account.gdce-provisioning-agent.member
+}
+
 // Generating a random_uuid based on the md5s of all files in the watchers directory.
 // This avoids situations in temporary workspaces where the file may not be available
 //   on subsequent `tf plan/apply` or carried over from the plan to the apply. 
@@ -242,6 +248,12 @@ resource "google_project_iam_member" "zone-watcher-agent-secret-accessor" {
 resource "google_project_iam_member" "zone-watcher-agent-edge-viewer" {
   project = local.project_id_fleet
   role    = "roles/edgecontainer.viewer"
+  member  = google_service_account.zone-watcher-agent.member
+}
+
+resource "google_project_iam_member" "zone-watcher-agent-hardware-management-reader" {
+  project = local.project_id_fleet
+  role    = "roles/gdchardwaremanagement.reader"
   member  = google_service_account.zone-watcher-agent.member
 }
 
