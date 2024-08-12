@@ -240,7 +240,7 @@ resource "google_service_account_iam_member" "gdce-provisioning-agent-impersonat
 }
 
 resource "google_project_iam_member" "zone-watcher-agent-secret-accessor" {
-  project = var.project_id
+  project = local.project_id_secrets
   role    = "roles/secretmanager.secretAccessor"
   member  = google_service_account.zone-watcher-agent.member
 }
