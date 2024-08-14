@@ -187,6 +187,8 @@ steps:
     gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME \
         --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
 
+    gcloud container fleet identity-service enable --project $FLEET_PROJECT_ID
+
     gcloud container fleet identity-service apply --membership=$CLUSTER_NAME \
         --config=./auth-config.yaml --project $FLEET_PROJECT_ID
 
