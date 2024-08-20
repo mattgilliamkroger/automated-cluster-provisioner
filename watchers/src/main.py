@@ -10,13 +10,15 @@ import requests
 import google_crc32c
 from requests.structures import CaseInsensitiveDict
 from urllib.parse import urlparse
-from google.api_core import client_options
+from google.api_core import client_options, exceptions
 from google.cloud import edgecontainer
 from google.cloud import edgenetwork
 from google.cloud import secretmanager
 from google.cloud import gdchardwaremanagement_v1alpha
 from google.cloud.gdchardwaremanagement_v1alpha import Zone
 from google.cloud.devtools import cloudbuild
+from google.cloud import monitoring_v3
+from google.protobuf.timestamp_pb2 import Timestamp
 from dateutil.parser import parse
 from typing import Dict
 
@@ -44,7 +46,6 @@ def get_parameters_from_environment():
     source_of_truth_repo = os.environ.get("SOURCE_OF_TRUTH_REPO")
     source_of_truth_branch = os.environ.get("SOURCE_OF_TRUTH_BRANCH")
     source_of_truth_path = os.environ.get("SOURCE_OF_TRUTH_PATH")
-
 
     cb_trigger = f'projects/{proj_id}/locations/{region}/triggers/{os.environ.get("CB_TRIGGER_NAME")}'
 
@@ -138,7 +139,7 @@ def zone_watcher(req: flask.Request):
                 else:
                     zone = get_zone_name(zone_store_id)
                     zone_name_retrieved_from_api = True
-            except Exception as e:
+            except:
                 logger.error(f'Zone for store {store_id} cannot be found, skipping.', exc_info=True)
                 continue
             
@@ -146,14 +147,14 @@ def zone_watcher(req: flask.Request):
                 logger.warning(f'No machine found in zone {zone}')
                 continue
 
-            count_of_free_machines=0
+            count_of_free_machines = 0
             for m in machine_lists[zone]:
                 if len(m.hosted_node.strip()) > 0:  # if there is any value, consider there is a cluster
                     logger.info(f'ZONE {zone}: {m.name} already used by {m.hosted_node}')
                 else:
                     logger.info(f'ZONE {zone}: {m.name} is a free node')
-                    count_of_free_machines=count_of_free_machines+1
-            if count_of_free_machines>=int(config_zone_info[location][store_id]["node_count"]):
+                    count_of_free_machines = count_of_free_machines+1
+            if count_of_free_machines >= int(config_zone_info[location][store_id]["node_count"]):
                 logger.info(f'ZONE {zone}: There are enough free  nodes to create cluster')
             else:
                 logger.info(f'ZONE {zone}: Not enough free  nodes to create cluster. Need {str(config_zone_info[location][store_id]["node_count"])} but have {str(count_of_free_machines)} free nodes')
@@ -247,7 +248,7 @@ def cluster_watcher(req: flask.Request):
                     zone = config_zone_info[location][store_id]['zone_name']
                 else:
                     zone = get_zone_name(zone_store_id)
-            except Exception as e:
+            except:
                 logger.error(f'Zone for store {store_id} cannot be found, skipping.', exc_info=True)
                 continue
 
@@ -338,6 +339,98 @@ def cluster_watcher(req: flask.Request):
     return f'total zones triggered = {count}'
 
 
+@functions_framework.http
+def zone_active_metric(req: flask.Request):
+    params = get_parameters_from_environment()
+
+    logger.info(
+        f'Running zone active watcher in: proj_id={params.project_id}, sot={params.source_of_truth_repo}/{params.source_of_truth_branch}/{params.source_of_truth_path}')
+
+    token = get_git_token_from_secrets_manager(params.secrets_project_id, params.git_secret_id)
+    intent_reader = ClusterIntentReader(
+        params.source_of_truth_repo, params.source_of_truth_branch,
+        params.source_of_truth_path, token)
+    zone_config_fio = intent_reader.retrieve_source_of_truth()
+    rdr = csv.DictReader(io.StringIO(zone_config_fio))  # will raise exception if csv parsing fails
+
+    time_series_data = []
+    for row in rdr:
+        f_proj_id = row['fleet_project_id']
+        m_proj_id = f_proj_id if row['machine_project_id'] is None or len(row['machine_project_id']) == 0 else row['machine_project_id']
+        loc = params.region if row['location'] is None or len(row['location']) == 0 else row['location']
+        store_id = row['store_id']
+        cl_name = row['cluster_name']
+        full_zone_name = f'projects/{m_proj_id}/locations/{loc}/zones/{store_id}'
+        b_generate_metric = False
+        b_zone_found = False
+        active_metric = 0  # 0 - inactive, 1 - active
+        try:
+            zone = get_zone(full_zone_name)
+            logger.debug(f'{store_id} state = {Zone.State(zone.state).name}')
+            b_zone_found = True
+        except Exception as e:
+            logger.debug(f'get_zone({store_id}) -> {type(e)}', exc_info=False)
+            if isinstance(e, exceptions.ServerError):
+                # if ServerError (API failure), treat zone as active and not to filter any alerts
+                # any exception other than hw mgmt API failure, such as ClientError or generic exception
+                # treat as non-existing zone (don't generate metric)
+                b_generate_metric = True
+                active_metric = 1
+
+        if b_zone_found and zone.globally_unique_id is not None and len(zone.globally_unique_id.strip()) > 0:
+            # only zones with globally_unique_id is considering as existing zones(generate metric)
+            gdce_zone_name = zone.globally_unique_id.strip()
+            b_generate_metric = True
+            if zone.state == Zone.State.ACTIVE:
+                active_metric = 1
+
+        if not b_generate_metric:
+            continue
+
+        # Construct time series datapoints for each store
+        timestamp = Timestamp()
+        timestamp.GetCurrentTime()
+        data_point = {
+            'interval': {'end_time': timestamp},
+            'value': {'int64_value': active_metric}
+        }
+        time_series_point = {
+            'metric': {
+                'type': 'custom.googleapis.com/gdc_zone_active',
+                'labels': {
+                    'fleet_project_id': f_proj_id,
+                    'machine_project_id': m_proj_id,
+                    'location': loc,
+                    'store_id': store_id,
+                    'zone_name': gdce_zone_name,
+                    'cluster_name': cl_name,
+                }
+            },
+            'resource': {
+                'type': 'global',
+                'labels': {
+                    'project_id': f_proj_id
+                }
+            },
+            'points': [data_point]
+        }
+        time_series_data.append(time_series_point)
+
+    # send batch requests to metric
+    m_client = monitoring_v3.MetricServiceClient()
+    batch_size = 200
+    for i in range(0, len(time_series_data), batch_size):
+        request = monitoring_v3.CreateTimeSeriesRequest({
+            'name': f'projects/{params.project_id}',
+            'time_series': time_series_data[i:i + batch_size]
+        })
+        m_client.create_time_series(request)
+
+    logger.debug(f'update datapoint for {[x["metric"]["labels"]["store_id"] for x in time_series_data]}')
+    logger.debug(f'total zone active flag updated = {len(time_series_data)}')
+    return f'total zone active flag updated = {len(time_series_data)}'
+
+
 def get_gcp_compute_engine_metadata(project: str) -> Dict[str, str]:
     """Returns the compute engine metadata from the GCP project as a dict
     Args:
@@ -351,7 +444,7 @@ def get_gcp_compute_engine_metadata(project: str) -> Dict[str, str]:
         project=project,
     )
     response = client.get(request=request)
-    metadata = { item.key: item.value for item in response.common_instance_metadata.items }
+    metadata = {item.key: item.value for item in response.common_instance_metadata.items}
     return metadata
 
 
@@ -382,7 +475,7 @@ def get_zone_name(store_id: str) -> str:
     return get_zone(store_id).globally_unique_id
 
 
-def get_zone_state(store_id: str) -> Zone.State :
+def get_zone_state(store_id: str) -> Zone.State:
     """Return Zone info.
     Args:
       store_id: name of zone which is store id usually

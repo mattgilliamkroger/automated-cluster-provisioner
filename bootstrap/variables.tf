@@ -130,3 +130,9 @@ variable "git_secret_id" {
   description = "Secrets manager secret holding git token to pull source of truth"
   default     = "shyguy-internal-pat"
 }
+
+variable "deploy-zone-active-monitor" {
+  type        = bool
+  description = "Whether to deploy Zone Active Monitor cloud function"
+  default     = false
+}
