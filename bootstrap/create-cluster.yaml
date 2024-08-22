@@ -50,9 +50,7 @@ steps:
     [[ -z "$NODE_LOCATION" ]] && die "ZONE not set"
 
     apt-get update
-    apt-get install -y gettext-base
-    apt-get install -y csvtool
-    apt-get install -y jq
+    apt-get install -y gettext-base csvtool jq
 
     TOKEN=$(gcloud secrets versions access latest --secret=$GIT_SECRET_ID --project $GIT_SECRETS_PROJECT_ID)
     git clone -b $SOURCE_OF_TRUTH_BRANCH https://oauth2:$TOKEN@$SOURCE_OF_TRUTH_REPO repo
@@ -215,6 +213,17 @@ steps:
     else
       zone_signal_complete "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}"
     fi
+
+    export VIRTCTL_VERSION=v1.2.2
+    curl -L https://github.com/kubevirt/kubevirt/releases/download/${VIRTCTL_VERSION}/virtctl-${VIRTCTL_VERSION}-linux-amd64 -o virtctl
+    chmod +x virtctl
+
+    echo "Shutting down running VMs"
+    for vm in $(kubectl get vmi -n vm-workloads --no-headers | awk '{print $1}'); do
+      echo "Shutting down $vm"
+      ./virtctl stop -n vm-workloads $vm
+    done
+
 
     echo "Cluster Creation Succeeded: $CLUSTER_NAME"
 
