@@ -1,15 +1,3 @@
-variable "store_id" {
-  description = "Store ID, used to lookup zone info"
-  type        = string
-  default     = null
-}
-
-variable "zone" {
-  description = "Zone name"
-  type        = string
-  default     = null
-}
-
 variable "project_id" {
   description = "The Google Cloud Platform (GCP) project id in which the solution resources will be provisioned"
   type        = string
@@ -91,24 +79,10 @@ variable "environment" {
   type        = string
 }
 
-variable "edge_container_api_endpoint_override" {
-  description = "Google Distributed Cloud Edge API"
-  default     = ""
-}
-
-variable "edge_network_api_endpoint_override" {
-  description = "Google Distributed Cloud Edge Network API"
-  default     = ""
-}
-
-variable "gke_hub_api_endpoint_override" {
-  description = "Google Distributed Cloud Edge API"
-  default     = ""
-}
-
-variable "hardware_management_api_endpoint_override" {
-  description = "Google Distributed Hardware Management API"
-  default     = ""
+variable "skip_identity_service" {
+  description = "Skip the configuring Anthos identity service during cluster provisioning. This is used for group based RBAC in the cluster."
+  type        = bool
+  default     = false
 }
 
 variable "source_of_truth_repo" {
@@ -135,4 +109,24 @@ variable "deploy-zone-active-monitor" {
   type        = bool
   description = "Whether to deploy Zone Active Monitor cloud function"
   default     = false
+}
+
+variable "edge_container_api_endpoint_override" {
+  description = "Google Distributed Cloud Edge API. Leave empty to use default api endpoint."
+  default     = ""
+}
+
+variable "edge_network_api_endpoint_override" {
+  description = "Google Distributed Cloud Edge Network API. Leave empty to use default api endpoint."
+  default     = ""
+}
+
+variable "gke_hub_api_endpoint_override" {
+  description = "Google Distributed Cloud Edge API. Leave empty to use default api endpoint."
+  default     = ""
+}
+
+variable "hardware_management_api_endpoint_override" {
+  description = "Google Distributed Hardware Management API. Leave empty to use default api endpoint."
+  default     = ""
 }

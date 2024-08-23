@@ -3,8 +3,6 @@ locals {
   cloud_build_inline_modify_cluster = yamldecode(file("${path.module}/modify-cluster.yaml"))
   cloud_build_substitions = merge(
     { _CLUSTER_INTENT_BUCKET = google_storage_bucket.gdce-cluster-provisioner-bucket.name },
-    { _STORE_ID = var.store_id },
-    { _ZONE = var.zone },
     var.edge_container_api_endpoint_override != "" ? { _EDGE_CONTAINER_API_ENDPOINT_OVERRIDE = var.edge_container_api_endpoint_override } : {},
     var.edge_network_api_endpoint_override != "" ? { _EDGE_NETWORK_API_ENDPOINT_OVERRIDE = var.edge_network_api_endpoint_override } : {},
     var.gke_hub_api_endpoint_override != "" ? { _GKEHUB_API_ENDPOINT_OVERRIDE = var.gke_hub_api_endpoint_override } : {},
@@ -14,6 +12,7 @@ locals {
     { _SOURCE_OF_TRUTH_PATH = var.source_of_truth_path },
     { _GIT_SECRET_ID = var.git_secret_id },
     { _GIT_SECRETS_PROJECT_ID = local.project_id_secrets },
+    var.skip_identity_service ? { _SKIP_IDENTITY_SERVICE = "TRUE" } : {},
   )
   project_id_fleet   = coalesce(var.project_id_fleet, var.project_id)
   project_id_secrets = coalesce(var.project_id_secrets, var.project_id)

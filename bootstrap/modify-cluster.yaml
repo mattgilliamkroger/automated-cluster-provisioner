@@ -5,15 +5,40 @@ steps:
   script: |
     #!/usr/bin/env bash
     set +x
+    set -o pipefail
 
     function die() {
       echo "Cluster Modify Failed: $1"
       exit 1
     }
 
-    [[ -z "${STORE_ID}" ]] && die "STORE_ID not set"
+    function parse_csv_required() {
+      input="$1"
+      column="$2"
 
-    NODE_LOCATION=${ZONE}
+      output=$(echo "$input" | csvtool namedcol "$column" - | csvtool drop 1 -)
+
+      [[ $? -ne 0 ]] && die "Missing required parameter $2"
+
+      if [ -z "$output" ]; then
+        die "Empty required parameter $2"
+      fi
+
+      echo "$output"
+    }
+
+    function parse_csv_optional() {
+      input="$1"
+      column="$2"
+
+      output=$(echo "$input" | csvtool namedcol "$column" - | csvtool drop 1 -)
+
+      echo "$output"
+    }
+
+    [[ -z "${_STORE_ID}" ]] && die "STORE_ID not set"
+
+    NODE_LOCATION=${_ZONE}
     [[ -z "$NODE_LOCATION" ]] && die "ZONE not set"
 
     apt-get update
@@ -27,22 +52,22 @@ steps:
 
     cp repo/$SOURCE_OF_TRUTH_PATH ./cluster-intent-registry.csv
 
-    export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$STORE_ID\" || \$1 == \"\\\"$STORE_ID\\\"\"" cluster-intent-registry.csv)
+    export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$_STORE_ID\" || \$1 == \"\\\"$_STORE_ID\\\"\"" cluster-intent-registry.csv)
     echo $CLUSTER_INTENT_ROW
-    [[ -z "${CLUSTER_INTENT_ROW}" ]] && die "Cluster intent not found for store ${STORE_ID}"
+    [[ -z "${CLUSTER_INTENT_ROW}" ]] && die "Cluster intent not found for store ${_STORE_ID}"
 
     export CLUSTER_INTENT_HEADER=$(head -1 cluster-intent-registry.csv)
     export CLUSTER_INTENT="$CLUSTER_INTENT_HEADER"$'\n'"$CLUSTER_INTENT_ROW"
 
     # Set parameters from cluster intent
-    export MACHINE_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "machine_project_id" - | csvtool drop 1 -)
-    export FLEET_PROJECT_ID=$(echo "$CLUSTER_INTENT" | csvtool namedcol "fleet_project_id" - | csvtool drop 1 -)
-    export CLUSTER_NAME=$(echo "$CLUSTER_INTENT" | csvtool namedcol "cluster_name" - | csvtool drop 1 -)
-    export LOCATION=$(echo "$CLUSTER_INTENT" | csvtool namedcol "location" - | csvtool drop 1 -)
-    export MAINTENANCE_WINDOW_START=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_start" - | csvtool drop 1 -)
-    export MAINTENANCE_WINDOW_END=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_end" - | csvtool drop 1 -)
-    export MAINTENANCE_WINDOW_RECURRENCE=$(echo "$CLUSTER_INTENT" | csvtool namedcol "maintenance_window_recurrence" - | csvtool drop 1 -)
-    export SUBNET_VLANS=$(echo "$CLUSTER_INTENT" | csvtool namedcol "subnet_vlans" - | csvtool drop 1 - | tr -d '"')
+    export MACHINE_PROJECT_ID=$(parse_csv_required "$CLUSTER_INTENT" "machine_project_id")
+    export FLEET_PROJECT_ID=$(parse_csv_required "$CLUSTER_INTENT" "fleet_project_id")
+    export CLUSTER_NAME=$(parse_csv_required "$CLUSTER_INTENT" "cluster_name")
+    export LOCATION=$(parse_csv_required "$CLUSTER_INTENT" "location")
+    export MAINTENANCE_WINDOW_START=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_start")
+    export MAINTENANCE_WINDOW_END=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_end")
+    export MAINTENANCE_WINDOW_RECURRENCE=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_recurrence")
+    export SUBNET_VLANS=$(parse_csv_optional "$CLUSTER_INTENT" "subnet_vlans" | tr -d '"')
 
     if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
@@ -98,8 +123,6 @@ steps:
     echo "Cluster Modify Succeeded: Completed reconciling $NODE_LOCATION"
 
   env:
-  - 'STORE_ID=$_STORE_ID'
-  - 'ZONE=$_ZONE'
   - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
   - 'EDGE_NETWORK_API_ENDPOINT_OVERRIDE=$_EDGE_NETWORK_API_ENDPOINT_OVERRIDE'
   - 'GKEHUB_API_ENDPOINT_OVERRIDE=$_GKEHUB_API_ENDPOINT_OVERRIDE'
