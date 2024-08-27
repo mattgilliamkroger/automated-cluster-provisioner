@@ -234,9 +234,9 @@ steps:
       [[ ${count} -ge ${max_retries} ]] && die "Health check resource not created after 20min"
 
       kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=PlatformHealthy \
-          --timeout=20m || die "Platform is not healthy after 20m"
+          --timeout=40m || die "Platform is not healthy after 40m"
       kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=WorkloadsHealthy \
-          --timeout=2h || die "Workloads are not healthy after 2h"
+          --timeout=6h || die "Workloads are not healthy after 6h"
     fi
     
     if [[ -n "${ZONE_NAME_FROM_SOT}" ]]; then
@@ -277,6 +277,6 @@ steps:
   - 'STORE_ID=$_STORE_ID'
   - 'ZONE=$_ZONE'
 
-timeout: 14400s
+timeout: 28800s
 options:
   logging: CLOUD_LOGGING_ONLY

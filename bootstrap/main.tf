@@ -75,7 +75,7 @@ resource "google_cloudbuild_trigger" "create-cluster" {
 
   build {
     substitutions = local.cloud_build_substitions
-    timeout       = try(local.cloud_build_inline_create_cluster["timeout"], "14400s")
+    timeout       = try(local.cloud_build_inline_create_cluster["timeout"], "28800s")
 
     options {
       logging = try(local.cloud_build_inline_create_cluster["options"]["logging"], null)
@@ -109,7 +109,7 @@ resource "google_cloudbuild_trigger" "modify-cluster" {
 
   build {
     substitutions = local.cloud_build_substitions
-    timeout       = try(local.cloud_build_inline_modify_cluster["timeout"], "14400s")
+    timeout       = try(local.cloud_build_inline_modify_cluster["timeout"], "600s")
 
     options {
       logging = try(local.cloud_build_inline_modify_cluster["options"]["logging"], null)
