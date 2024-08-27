@@ -69,9 +69,9 @@ steps:
       echo "$output"
     }
 
-    [[ -z "${_STORE_ID}" ]] && die "STORE_ID not set"
+    [[ -z "${STORE_ID}" ]] && die "STORE_ID not set"
 
-    NODE_LOCATION=${_ZONE}
+    NODE_LOCATION=${ZONE}
     [[ -z "$NODE_LOCATION" ]] && die "ZONE not set"
 
     apt-get update
@@ -81,9 +81,9 @@ steps:
     git clone -b $SOURCE_OF_TRUTH_BRANCH https://oauth2:$TOKEN@$SOURCE_OF_TRUTH_REPO repo
     cp repo/$SOURCE_OF_TRUTH_PATH ./cluster-intent-registry.csv
 
-    export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$_STORE_ID\" || \$1 == \"\\\"$_STORE_ID\\\"\"" cluster-intent-registry.csv)
+    export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$STORE_ID\" || \$1 == \"\\\"$STORE_ID\\\"\"" cluster-intent-registry.csv)
     echo $CLUSTER_INTENT_ROW
-    [[ -z "$CLUSTER_INTENT_ROW" ]] && die "Cluster intent not found for store $_STORE_ID"
+    [[ -z "$CLUSTER_INTENT_ROW" ]] && die "Cluster intent not found for store $STORE_ID"
     export CLUSTER_INTENT_HEADER=$(head -1 cluster-intent-registry.csv)
     export CLUSTER_INTENT="$CLUSTER_INTENT_HEADER"$'\n'"$CLUSTER_INTENT_ROW"
 
@@ -218,7 +218,8 @@ steps:
           --config=./auth-config.yaml --project $FLEET_PROJECT_ID
     fi
 
-    set +e
+    set +eE
+    trap - ERR
 
     if [ -z "${SKIP_HEALTH_CHECK}" ]; then
       count=0
@@ -241,10 +242,11 @@ steps:
     if [[ -n "${ZONE_NAME_FROM_SOT}" ]]; then
       echo "Zone name is defined in SOT... skipping zone signal completion."
     else
-      zone_signal_complete "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${_STORE_ID}"
+      zone_signal_complete "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}"
     fi
 
     set -eE
+    trap 'die "Error shutting down VMs"' ERR
 
     export VIRTCTL_VERSION=v1.2.2
     curl -L https://github.com/kubevirt/kubevirt/releases/download/${VIRTCTL_VERSION}/virtctl-${VIRTCTL_VERSION}-linux-amd64 -o virtctl
@@ -272,6 +274,9 @@ steps:
   - 'GIT_SECRETS_PROJECT_ID=$_GIT_SECRETS_PROJECT_ID'
   - 'SKIP_HEALTH_CHECK=$_SKIP_HEALTH_CHECK'
   - 'SKIP_IDENTITY_SERVICE=$_SKIP_IDENTITY_SERVICE'
+  - 'STORE_ID=$_STORE_ID'
+  - 'ZONE=$_ZONE'
+
 timeout: 14400s
 options:
   logging: CLOUD_LOGGING_ONLY

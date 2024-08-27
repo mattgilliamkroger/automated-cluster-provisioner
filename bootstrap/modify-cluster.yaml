@@ -36,9 +36,9 @@ steps:
       echo "$output"
     }
 
-    [[ -z "${_STORE_ID}" ]] && die "STORE_ID not set"
+    [[ -z "${STORE_ID}" ]] && die "STORE_ID not set"
 
-    NODE_LOCATION=${_ZONE}
+    NODE_LOCATION=${ZONE}
     [[ -z "$NODE_LOCATION" ]] && die "ZONE not set"
 
     apt-get update
@@ -52,9 +52,9 @@ steps:
 
     cp repo/$SOURCE_OF_TRUTH_PATH ./cluster-intent-registry.csv
 
-    export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$_STORE_ID\" || \$1 == \"\\\"$_STORE_ID\\\"\"" cluster-intent-registry.csv)
+    export CLUSTER_INTENT_ROW=$(awk -F , "\$1 == \"$STORE_ID\" || \$1 == \"\\\"$STORE_ID\\\"\"" cluster-intent-registry.csv)
     echo $CLUSTER_INTENT_ROW
-    [[ -z "${CLUSTER_INTENT_ROW}" ]] && die "Cluster intent not found for store ${_STORE_ID}"
+    [[ -z "${CLUSTER_INTENT_ROW}" ]] && die "Cluster intent not found for store ${STORE_ID}"
 
     export CLUSTER_INTENT_HEADER=$(head -1 cluster-intent-registry.csv)
     export CLUSTER_INTENT="$CLUSTER_INTENT_HEADER"$'\n'"$CLUSTER_INTENT_ROW"
@@ -132,6 +132,8 @@ steps:
   - 'SOURCE_OF_TRUTH_PATH=$_SOURCE_OF_TRUTH_PATH'
   - 'GIT_SECRET_ID=$_GIT_SECRET_ID'
   - 'GIT_SECRETS_PROJECT_ID=$_GIT_SECRETS_PROJECT_ID'
+  - 'STORE_ID=$_STORE_ID'
+  - 'ZONE=$_ZONE'
 
 timeout: 14400s
 options:
