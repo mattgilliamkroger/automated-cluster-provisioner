@@ -214,6 +214,8 @@ steps:
         --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
 
     if [ -z "${SKIP_IDENTITY_SERVICE}" ]; then
+      gcloud container fleet identity-service enable --project $FLEET_PROJECT_ID
+
       gcloud container fleet identity-service apply --membership=$CLUSTER_NAME \
           --config=./auth-config.yaml --project $FLEET_PROJECT_ID
     fi
