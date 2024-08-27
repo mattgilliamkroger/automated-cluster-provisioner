@@ -424,3 +424,73 @@ resource "google_cloud_scheduler_job" "cluster-watcher-job" {
     }
   }
 }
+
+# Zone Active Metric Ingestion cloud function
+resource "google_cloudfunctions2_function" "zone-active-metric" {
+  count       = var.deploy-zone-active-monitor ? 1 : 0
+  name        = "zone-active-metric-${var.environment}"
+  location    = var.region
+  description = "zone active metric generator"
+
+  build_config {
+    runtime     = "python312"
+    entry_point = "zone_active_metric"
+    environment_variables = {
+      "SOURCE_SHA" = data.archive_file.watcher-src.output_sha # https://github.com/hashicorp/terraform-provider-google/issues/1938
+    }
+    service_account = google_service_account.zone-watcher-builder.id
+    source {
+      storage_source {
+        bucket = google_storage_bucket.gdce-cluster-provisioner-bucket.name
+        object = google_storage_bucket_object.watcher-src.name
+      }
+    }
+  }
+
+  service_config {
+    max_instance_count = 1
+    available_memory   = "256M"
+    timeout_seconds    = 60
+    environment_variables = {
+      GOOGLE_CLOUD_PROJECT                     = var.project_id,
+      CB_TRIGGER_NAME                          = "gdce-cluster-reconciler-trigger-${var.environment}"
+      REGION                                   = var.region
+      EDGE_CONTAINER_API_ENDPOINT_OVERRIDE     = var.edge_container_api_endpoint_override
+      EDGE_NETWORK_API_ENDPOINT_OVERRIDE       = var.edge_network_api_endpoint_override
+      HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE = var.hardware_management_api_endpoint_override
+      SOURCE_OF_TRUTH_REPO                     = var.source_of_truth_repo
+      SOURCE_OF_TRUTH_BRANCH                   = var.source_of_truth_branch
+      SOURCE_OF_TRUTH_PATH                     = var.source_of_truth_path
+      PROJECT_ID_SECRETS                       = var.project_id_secrets
+      GIT_SECRET_ID                            = var.git_secret_id
+    }
+    service_account_email = google_service_account.zone-watcher-agent.email
+  }
+}
+
+resource "google_cloud_run_service_iam_member" "zone-active-metric-member" {
+  count       = var.deploy-zone-active-monitor ? 1 : 0
+  location = google_cloudfunctions2_function.zone-active-metric[0].location
+  service  = google_cloudfunctions2_function.zone-active-metric[0].name
+  role     = "roles/run.invoker"
+  member   = google_service_account.gdce-provisioning-agent.member
+}
+
+resource "google_cloud_scheduler_job" "zone-active-metric-job" {
+  count       = var.deploy-zone-active-monitor ? 1 : 0
+  name             = "zone-active-metric-scheduler-${var.environment}"
+  description      = "Trigger the ${google_cloudfunctions2_function.zone-active-metric[0].name}"
+  schedule         = "*/10 * * * *" # Run every 10 minutes
+  time_zone        = "Europe/Dublin"
+  attempt_deadline = "320s"
+  region           = var.region
+
+  http_target {
+    http_method = "POST"
+    uri         = google_cloudfunctions2_function.zone-active-metric[0].service_config[0].uri
+
+    oidc_token {
+      service_account_email = google_service_account.gdce-provisioning-agent.email
+    }
+  }
+}
