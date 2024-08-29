@@ -39,6 +39,7 @@ from typing import Dict
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 
+
 @dataclass
 class WatcherParameters:
     project_id: str
@@ -417,6 +418,7 @@ def zone_active_metric(req: flask.Request):
                     'store_id': store_id,
                     'zone_name': gdce_zone_name,
                     'cluster_name': cl_name,
+                    'cluster': cl_name
                 }
             },
             'resource': {
