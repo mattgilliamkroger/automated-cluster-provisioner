@@ -36,9 +36,8 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from dateutil.parser import parse
 from typing import Dict
 
-logger = logging.getLogger()
-logging.basicConfig(stream=sys.stdout, level=os.environ.get("LOG_LEVEL", "INFO").upper())
-
+logger = logging.getLogger(__name__)
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 
 @dataclass
 class WatcherParameters:
