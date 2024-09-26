@@ -250,7 +250,7 @@ steps:
       [[ ${count} -ge ${max_retries} ]] && die "Health check resource not created after 20min"
 
       kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=PlatformHealthy \
-          --timeout=40m || die "Platform is not healthy after 40m"
+          --timeout=1h || die "Platform is not healthy after 1h"
       kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=WorkloadsHealthy \
           --timeout=6h || die "Workloads are not healthy after 6h"
     fi
