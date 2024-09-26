@@ -162,8 +162,8 @@ steps:
 
     fi
 
-    if [[ -z "${MAINTENANCE_WINDOW_START}" || ${MAINTENANCE_WINDOW_END} || \
-            ${MAINTENANCE_WINDOW_RECURRENCE} ]]; then
+    if [[ -z "${MAINTENANCE_WINDOW_START}" || -z ${MAINTENANCE_WINDOW_END} || \
+            -z ${MAINTENANCE_WINDOW_RECURRENCE} ]]; then
       echo "All maintenance window fields are not set, skipping"
       echo "MAINTENANCE_WINDOW_START=${MAINTENANCE_WINDOW_START}"
       echo "MAINTENANCE_WINDOW_END=${MAINTENANCE_WINDOW_END}"
