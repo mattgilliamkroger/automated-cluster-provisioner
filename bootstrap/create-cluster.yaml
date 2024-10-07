@@ -122,6 +122,8 @@ steps:
     export MAINTENANCE_WINDOW_RECURRENCE=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_recurrence")
     export SUBNET_VLANS=$(parse_csv_optional "$CLUSTER_INTENT" "subnet_vlans" | tr -d '"')
     export ZONE_NAME_FROM_SOT=$(parse_csv_optional "$CLUSTER_INTENT" "zone_name")
+    export BACKUP_ENABLE=$(parse_csv_optional "$CLUSTER_INTENT" "backup_enable")
+
 
     if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
@@ -274,6 +276,14 @@ steps:
       ./virtctl stop -n vm-workloads $vm
     done
 
+    if [ "${BACKUP_ENABLE}" = true ]; then
+      echo "Creating and setting up BART related GCS bucket and secrets"
+      #GCS Bucket per cluster
+      gcloud storage buckets create gs://${CLUSTER_NAME}-bart-backup --location=${LOCATION}
+      #All clusters to use the same SA/HMAC to access their respective bucket.      
+    else
+      echo "Backups for this cluster is not enabled. Not creating GCS bucket."
+    fi
 
     echo "Cluster Creation Succeeded: $CLUSTER_NAME"
 
