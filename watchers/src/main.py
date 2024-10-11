@@ -101,22 +101,7 @@ def zone_watcher(req: flask.Request):
 
     logger.info(f'Running zone watcher for: proj_id={params.project_id},sot={params.source_of_truth_repo}/{params.source_of_truth_branch}/{params.source_of_truth_path}, cb_trigger={params.cloud_build_trigger}')
     
-    config_zone_info = {}
-    token = get_git_token_from_secrets_manager(params.secrets_project_id, params.git_secret_id)
-    intent_reader = ClusterIntentReader(params.source_of_truth_repo, params.source_of_truth_branch, params.source_of_truth_path, token)
-    zone_config_fio = intent_reader.retrieve_source_of_truth()
-    rdr = csv.DictReader(io.StringIO(zone_config_fio))  # will raise exception if csv parsing fails
-    machine_proj_loc = set()
-
-    for row in rdr:
-        if row['location'] not in config_zone_info.keys():
-            config_zone_info[row['location']] = {}
-        config_zone_info[row['location']][row['store_id']] = row
-        machine_proj_loc.add((row['machine_project_id'], row['location']))
-    for loc in config_zone_info:
-        logger.debug(f'Zones to check in {loc} => {len(config_zone_info[loc])}')
-    if len(config_zone_info) == 0:
-        raise Exception('no valid zone listed in config file')
+    config_zone_info = read_intent_data(params, 'machine_project_id')
 
     edgecontainer_api_endpoint_override = os.environ.get("EDGE_CONTAINER_API_ENDPOINT_OVERRIDE")
     if edgecontainer_api_endpoint_override:
@@ -128,9 +113,9 @@ def zone_watcher(req: flask.Request):
 
     # get machines list per machine_project per location, and group by GDCE zone
     machine_lists = {}
-    for m_proj, loc in machine_proj_loc:
+    for (machine_project, location) in config_zone_info:
         req = edgecontainer.ListMachinesRequest(
-            parent=ec_client.common_location_path(m_proj, loc)
+            parent=ec_client.common_location_path(machine_project, location)
         )
         res_pager = ec_client.list_machines(req)
         for m in res_pager:
@@ -142,13 +127,16 @@ def zone_watcher(req: flask.Request):
     # if cluster already present in the zone, skip this zone
     # method: check all the machines in the zone, and check if "hosted_node" has any value in it
     count = 0
-    for location in config_zone_info:
-        for store_id in config_zone_info[location]:
-            machine_project_id = config_zone_info[location][store_id]['machine_project_id']
-            zone_store_id = f'projects/{machine_project_id}/locations/{location}/zones/{store_id}'
+    for proj_loc_key in config_zone_info:
+        (machine_project, location) = proj_loc_key
+
+        for store_id in config_zone_info[proj_loc_key]:
+            store_info = config_zone_info[proj_loc_key][store_id]
+
+            zone_store_id = f'projects/{machine_project}/locations/{location}/zones/{store_id}'
             try:
-                if config_zone_info[location][store_id]['zone_name']:
-                    zone = config_zone_info[location][store_id]['zone_name']
+                if store_info['zone_name']:
+                    zone = store_info['zone_name']
                     zone_name_retrieved_from_api = False
                 else:
                     zone = get_zone_name(zone_store_id)
@@ -162,25 +150,35 @@ def zone_watcher(req: flask.Request):
                 continue
 
             count_of_free_machines = 0
+            cluster_exists = False
             for m in machine_lists[zone]:
                 if len(m.hosted_node.strip()) > 0:  # if there is any value, consider there is a cluster
+                    # check if target cluster already exists
+                    if (m.hosted_node.split('/')[5] == store_info['cluster_name']):
+                        cluster_exists = True
+                        break
+
                     logger.info(f'ZONE {zone}: {m.name} already used by {m.hosted_node}')
                 else:
                     logger.info(f'ZONE {zone}: {m.name} is a free node')
                     count_of_free_machines = count_of_free_machines+1
-            if count_of_free_machines >= int(config_zone_info[location][store_id]["node_count"]):
-                logger.info(f'ZONE {zone}: There are enough free  nodes to create cluster')
-            else:
-                logger.info(f'ZONE {zone}: Not enough free  nodes to create cluster. Need {str(config_zone_info[location][store_id]["node_count"])} but have {str(count_of_free_machines)} free nodes')
+
+            if cluster_exists:
                 continue
 
-            if zone_name_retrieved_from_api and not verify_zone_state(zone_store_id, config_zone_info[location][store_id]['recreate_on_delete']):
+            if count_of_free_machines >= int(store_info["node_count"]):
+                logger.info(f'ZONE {zone}: There are enough free  nodes to create cluster')
+            else:
+                logger.info(f'ZONE {zone}: Not enough free  nodes to create cluster. Need {str(store_info["node_count"])} but have {str(count_of_free_machines)} free nodes')
+                continue
+
+            if zone_name_retrieved_from_api and not verify_zone_state(zone_store_id, store_info['recreate_on_delete']):
                 logger.info(f'Zone: {zone}, Store: {store_id} is not in expected state! skipping..')
                 continue
 
             # trigger cloudbuild to initiate the cluster building
             repo_source = cloudbuild.RepoSource()
-            repo_source.branch_name = config_zone_info[location][store_id]['sync_branch']
+            repo_source.branch_name = store_info['sync_branch']
             repo_source.substitutions = {
                 "_STORE_ID": store_id,
                 "_ZONE": zone
@@ -198,7 +196,7 @@ def zone_watcher(req: flask.Request):
             except Exception as err:
                 logger.error(err)
 
-            count += len(config_zone_info[location])
+            count += len(config_zone_info[proj_loc_key])
 
     logger.info(f'total zones triggered = {count}')
 
@@ -212,19 +210,7 @@ def cluster_watcher(req: flask.Request):
     logger.info(f'proj_id = {params.project_id}')
     logger.info(f'cb_trigger = {params.cloud_build_trigger}')
 
-    config_zone_info = {}
-    token = get_git_token_from_secrets_manager(params.secrets_project_id, params.git_secret_id)
-    intent_reader = ClusterIntentReader(params.source_of_truth_repo, params.source_of_truth_branch, params.source_of_truth_path, token)
-    zone_config_fio = intent_reader.retrieve_source_of_truth()
-    rdr = csv.DictReader(io.StringIO(zone_config_fio))  # will raise exception if csv parsing fails
-    for row in rdr:
-        if row['location'] not in config_zone_info.keys():
-            config_zone_info[row['location']] = {}
-        config_zone_info[row['location']][row['store_id']] = row
-    for location in config_zone_info:
-        logger.debug(f'Stores to check in {location} => {len(config_zone_info[location])}')
-    if len(config_zone_info) == 0:
-        raise Exception('no valid zone listed in config file')
+    config_zone_info = read_intent_data(params, 'fleet_project_id')
 
     edgecontainer_api_endpoint_override = os.environ.get("EDGE_CONTAINER_API_ENDPOINT_OVERRIDE")
     edgenetwork_api_endpoint_override = os.environ.get("EDGE_NETWORK_API_ENDPOINT_OVERRIDE")
@@ -245,21 +231,25 @@ def cluster_watcher(req: flask.Request):
 
     # if cluster not present, skip this cluster
     count = 0
-    for location in config_zone_info:
+    for proj_loc_key in config_zone_info:
+        (project_id, location) = proj_loc_key
+
         # Get all the clusters in the location,
         # the GDCE Zone info is in "control_plane"
         # maintain window info is in "maintenance_policy.window"
         req_c = edgecontainer.ListClustersRequest(
-            parent=ec_client.common_location_path(params.project_id, location)
+            parent=ec_client.common_location_path(project_id, location)
         )
         res_pager_c = ec_client.list_clusters(req_c)
         cl_list = [c for c in res_pager_c]  # all the clusters in the location
-        for store_id in config_zone_info[location]:
-            machine_project_id = config_zone_info[location][store_id]['machine_project_id']
+        for store_id in config_zone_info[proj_loc_key]:
+            store_info = config_zone_info[proj_loc_key][store_id]
+
+            machine_project_id = store_info['machine_project_id']
             zone_store_id = f'projects/{machine_project_id}/locations/{location}/zones/{store_id}'
             try:
-                if config_zone_info[location][store_id]['zone_name']:
-                    zone = config_zone_info[location][store_id]['zone_name']
+                if store_info['zone_name']:
+                    zone = store_info['zone_name']
                 else:
                     zone = get_zone_name(zone_store_id)
             except:
@@ -279,23 +269,23 @@ def cluster_watcher(req: flask.Request):
             # Validate the start_time, end_time and rrule string of the maintenance window
             has_update = False
 
-            if (not config_zone_info[location][store_id]['maintenance_window_recurrence'] or
-                not config_zone_info[location][store_id]['maintenance_window_start'] or
-                not config_zone_info[location][store_id]['maintenance_window_end']
+            if (not store_info['maintenance_window_recurrence'] or
+                not store_info['maintenance_window_start'] or
+                not store_info['maintenance_window_end']
                 ):
                 # One of the MW properties is not set, so assume no update needs to be made
                 has_update = False
-            elif (rw.recurrence != config_zone_info[location][store_id]['maintenance_window_recurrence'] or
-                    rw.window.start_time != parse(config_zone_info[location][store_id]['maintenance_window_start']) or
-                    rw.window.end_time != parse(config_zone_info[location][store_id]['maintenance_window_end'])):
+            elif (rw.recurrence != store_info['maintenance_window_recurrence'] or
+                    rw.window.start_time != parse(store_info['maintenance_window_start']) or
+                    rw.window.end_time != parse(store_info['maintenance_window_end'])):
                 logger.info("Maintenance window requires update")
                 logger.info(f"Actual values (recurrence={rw.recurrence}, start_time={rw.window.start_time}, end_time={rw.window.end_time})")
-                logger.info(f"Desired values (recurrence={config_zone_info[location][store_id]['maintenance_window_recurrence']}, start_time={config_zone_info[location][store_id]['maintenance_window_start']}, end_time={config_zone_info[location][store_id]['maintenance_window_end']})")
+                logger.info(f"Desired values (recurrence={store_info['maintenance_window_recurrence']}, start_time={store_info['maintenance_window_start']}, end_time={store_info['maintenance_window_end']})")
                 has_update = True
 
             # get subnet vlan ids and ip addresses of this GDCE Zone
             req_n = edgenetwork.ListSubnetsRequest(
-                parent=f'{en_client.common_location_path(config_zone_info[location][store_id]["machine_project_id"], location)}/zones/{zone}'
+                parent=f'{en_client.common_location_path(store_info["machine_project_id"], location)}/zones/{zone}'
             )
             res_pager_n = en_client.list_subnets(req_n)
             subnet_list = [{'vlan_id': net.vlan_id, 'ipv4_cidr': sorted(net.ipv4_cidr)} for net in res_pager_n]
@@ -310,7 +300,7 @@ def cluster_watcher(req: flask.Request):
                 # )].sort(key=lambda x: x['vlan_id'])
                 # if subnet_list != config_subnet_list:
                 #     has_update = True
-                for desired_subnet in config_zone_info[location][store_id]['subnet_vlans'].split(','):
+                for desired_subnet in store_info['subnet_vlans'].split(','):
                     try:
                         vlan_id = int(desired_subnet)
                     except Exception as err:
@@ -321,7 +311,7 @@ def cluster_watcher(req: flask.Request):
                         has_update = True
 
                 for actual_vlan_id in [n['vlan_id'] for n in subnet_list]:
-                    if actual_vlan_id not in [int(v) for v in config_zone_info[location][store_id]['subnet_vlans'].split(',')]:
+                    if actual_vlan_id not in [int(v) for v in store_info['subnet_vlans'].split(',')]:
                         logger.error(f"VLAN {actual_vlan_id} is defined in the environment, but not in the source of truth. The subnet will need to be manually deleted from the environment.")
             except Exception as err:
                 logger.error(err)
@@ -330,7 +320,7 @@ def cluster_watcher(req: flask.Request):
                 continue
             # trigger cloudbuild to initiate the cluster updating
             repo_source = cloudbuild.RepoSource()
-            repo_source.branch_name = config_zone_info[location][store_id]['sync_branch']
+            repo_source.branch_name = store_info['sync_branch']
             repo_source.substitutions = {
                 "_STORE_ID": store_id,
                 "_ZONE": zone
@@ -348,7 +338,7 @@ def cluster_watcher(req: flask.Request):
             except Exception as err:
                 logger.error(err)
 
-            count += len(config_zone_info[location])
+            count += len(config_zone_info[proj_loc_key])
 
     return f'total zones triggered = {count}'
 
@@ -445,6 +435,43 @@ def zone_active_metric(req: flask.Request):
     logger.debug(f'total zone active flag updated = {len(time_series_data)}')
     return f'total zone active flag updated = {len(time_series_data)}'
 
+def read_intent_data(params, named_key):
+    """Returns a data structure containing project, location, and store information  
+
+    For example:
+    {
+        ('project1', 'us-central1'): {'storeid': {'cluster_name': 'cluster1', 'cluster_ipv4_cidr', '192.168.1.1/24'}},
+        ('project2', 'us-east4'): {'storeid': {'cluster_name': 'cluster2', 'cluster_ipv4_cidr', '192.168.2.1/24'}}
+    }
+
+    store_information matches the cluster intent's source of truth. Please reference the example-source-of-truth.csv
+    file for more information. 
+
+    Args:
+        params: WatcherParams
+        named_key: either 'fleet_project_id' or 'machine_project_id'
+    Returns:
+        A dictionary with the structure described above.
+    """
+
+    config_zone_info = {}
+    token = get_git_token_from_secrets_manager(params.secrets_project_id, params.git_secret_id)
+    intent_reader = ClusterIntentReader(params.source_of_truth_repo, params.source_of_truth_branch, params.source_of_truth_path, token)
+    zone_config_fio = intent_reader.retrieve_source_of_truth()
+    rdr = csv.DictReader(io.StringIO(zone_config_fio))  # will raise exception if csv parsing fails
+    
+    for row in rdr:
+        proj_loc_key = (row[named_key], row['location'])
+
+        if proj_loc_key not in config_zone_info.keys():
+            config_zone_info[proj_loc_key] = {}
+        config_zone_info[proj_loc_key][row['store_id']] = row
+    for key in config_zone_info:
+        logger.debug(f'Stores to check in {key[0]}, {key[1]} => {len(config_zone_info[proj_loc_key])}')
+    if len(config_zone_info) == 0:
+        raise Exception('no valid zone listed in config file')
+    
+    return config_zone_info
 
 def get_gcp_compute_engine_metadata(project: str) -> Dict[str, str]:
     """Returns the compute engine metadata from the GCP project as a dict
