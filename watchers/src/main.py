@@ -25,6 +25,8 @@ import google_crc32c
 from requests.structures import CaseInsensitiveDict
 from urllib.parse import urlparse
 from google.api_core import client_options, exceptions
+import google.auth
+import google.auth.transport.requests
 from google.cloud import edgecontainer
 from google.cloud import edgenetwork
 from google.cloud import secretmanager
@@ -39,6 +41,7 @@ from typing import Dict
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 
+creds, auth_project = google.auth.default()
 
 @dataclass
 class WatcherParameters:
@@ -282,6 +285,48 @@ def cluster_watcher(req: flask.Request):
                 logger.info(f"Actual values (recurrence={rw.recurrence}, start_time={rw.window.start_time}, end_time={rw.window.end_time})")
                 logger.info(f"Desired values (recurrence={store_info['maintenance_window_recurrence']}, start_time={store_info['maintenance_window_start']}, end_time={store_info['maintenance_window_end']})")
                 has_update = True
+            else:
+                # MW properties haven't changed, check exclusion windows
+                number_of_defined_columns = len([key for key in store_info.keys() if key.startswith("maintenance_exclusion_name")])
+                number_of_defined_exclusions = 0
+
+                for i in range(number_of_defined_columns):
+                    exclusion_name = store_info[f"maintenance_exclusion_name_{i+1}"]
+                    exclusion_start = store_info[f"maintenance_exclusion_start_{i+1}"]
+                    exclusion_end = store_info[f"maintenance_exclusion_end_{i+1}"]
+
+                    if (exclusion_name and exclusion_start and exclusion_end):
+                        number_of_defined_exclusions += 1
+
+                # Retrieving maintenance window from API until property exists in client library response
+                mw = get_maintenance_window_property(zone_cluster_list[0].name)
+                number_of_actual_exclusions = 0
+
+                if (mw and mw.get("maintenanceExclusions")):
+                    number_of_actual_exclusions = len(mw["maintenanceExclusions"])
+
+                if (number_of_actual_exclusions != number_of_defined_exclusions):
+                    has_update = True
+
+                for i in range(number_of_defined_columns):
+                    if has_update:
+                        break
+
+                    exclusion_name = store_info[f"maintenance_exclusion_name_{i+1}"]
+                    exclusion_start = store_info[f"maintenance_exclusion_start_{i+1}"]
+                    exclusion_end = store_info[f"maintenance_exclusion_end_{i+1}"]
+
+                    actual_exclusion = [ex for ex in mw["maintenanceExclusions"] if ex["id"] == exclusion_name]
+
+                    if (len(actual_exclusion) == 0):
+                        has_update = True
+                        break
+
+                    if (parse(actual_exclusion[0]["window"]["startTime"]) != parse(exclusion_start) or
+                            parse(actual_exclusion[0]["window"]["endTime"]) != parse(exclusion_end)):
+                        has_update = True
+                        break
+
 
             # get subnet vlan ids and ip addresses of this GDCE Zone
             req_n = edgenetwork.ListSubnetsRequest(
@@ -545,6 +590,36 @@ def verify_zone_state(store_id: str, recreate_on_delete: bool) -> bool:
     
     return False
 
+def get_maintenance_window_property(cluster_name):
+    """Return maintenance window info directly from API. This method will be replaced once client libraries support
+          maintenance exclusion properties in their responses.
+    Args:
+      cluster_name: full cluster name in the form of projects/<project-id>/locations/<location>/clusters/<cluster-name>
+    Returns:
+      maintenance window property from API, which includes maintenance exclusions.
+    """
+    if not creds.valid:
+        authRequest = google.auth.transport.requests.Request()
+        creds.refresh(authRequest)
+
+    base_url = "https://edgecontainer.googleapis.com/"
+
+    edgecontainer_api_endpoint_override = os.environ.get("EDGE_CONTAINER_API_ENDPOINT_OVERRIDE")
+    if edgecontainer_api_endpoint_override:
+        base_url = edgecontainer_api_endpoint_override
+
+    headers = {
+        "Authorization": f"Bearer {creds.token}"
+    }
+
+    url = f"{base_url}/v1/{cluster_name}"
+
+    cluster_response = requests.get(url, headers=headers)
+
+    if cluster_response.status_code == 200:
+        return cluster_response.json()["maintenancePolicy"]
+    else:
+        raise Exception(f"Unable to query for cluster with status code ({cluster_response.status_code})")
 
 class ClusterIntentReader:
     def __init__(self, repo, branch, sourceOfTruth, token):

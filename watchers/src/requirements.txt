@@ -1,4 +1,5 @@
 functions-framework==3.*
+google-auth==2.35.0
 google-cloud-build==3.24.2
 google-cloud-compute==1.19.2
 google-cloud-edgecontainer==0.5.11

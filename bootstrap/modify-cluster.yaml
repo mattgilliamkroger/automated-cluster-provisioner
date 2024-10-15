@@ -56,8 +56,7 @@ steps:
     [[ -z "$NODE_LOCATION" ]] && die "ZONE not set"
 
     apt-get update
-    apt-get install -y gettext-base
-    apt-get install -y csvtool
+    apt-get install -y gettext-base csvtool jq
 
     TOKEN=$(gcloud secrets versions access latest --secret=$GIT_SECRET_ID \
         --project $GIT_SECRETS_PROJECT_ID)
@@ -82,6 +81,14 @@ steps:
     export MAINTENANCE_WINDOW_END=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_end")
     export MAINTENANCE_WINDOW_RECURRENCE=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_recurrence")
     export SUBNET_VLANS=$(parse_csv_optional "$CLUSTER_INTENT" "subnet_vlans" | tr -d '"')
+
+    export MAINTENANCE_EXCLUSION_NAMES=$(echo "$CLUSTER_INTENT" | head -n1 | tr , '\n' | tr -d '"' | sort -n | grep 'maintenance_exclusion_name.*')
+    export MAINTENANCE_EXCLUSION_STARTS=$(echo "$CLUSTER_INTENT" | head -n1 | tr , '\n' |  tr -d '"' | sort -n | grep 'maintenance_exclusion_start.*')
+    export MAINTENANCE_EXCLUSION_ENDS=$(echo "$CLUSTER_INTENT" | head -n1 | tr , '\n' |  tr -d '"' | sort -n | grep 'maintenance_exclusion_end.*')
+
+    if [ "${#MAINTENANCE_EXCLUSION_NAMES[@]}" -ne "${#MAINTENANCE_EXCLUSION_STARTS[@]}" ] || [ "${#MAINTENANCE_EXCLUSION_NAMES[@]}" -ne "${#MAINTENANCE_EXCLUSION_ENDS[@]}" ]; then
+      die "Missing maintenance exclusion window property"
+    fi
 
     if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
@@ -113,6 +120,50 @@ steps:
           --maintenance-window-recurrence=$MAINTENANCE_WINDOW_RECURRENCE
       [[ $? -ne 0 ]] && die "Maintenance window update failed"
     fi
+
+
+    CLUSTER_DESCRIPTION=$(gcloud edge-cloud container clusters describe $CLUSTER_NAME \
+      --project=$FLEET_PROJECT_ID \
+      --location=$LOCATION \
+      --format json)
+
+    [[ $? -ne 0 ]] && die "Unable to describe cluster"
+
+    if jq -e '.maintenancePolicy.maintenanceExclusions == null' <<< "$CLUSTER_DESCRIPTION" > /dev/null; then
+      echo "No maintenance exclusions found"
+    else
+      echo "Clearing existing exclusions windows"
+
+      echo $CLUSTER_DESCRIPTION | jq '.maintenancePolicy.maintenanceExclusions[] | .id' -r | while read exclusion; do
+          gcloud edge-cloud container clusters update $CLUSTER_NAME \
+          --project=$FLEET_PROJECT_ID \
+          --location=$LOCATION \
+          --remove-maintenance-exclusion-window $exclusion
+
+          [[ $? -ne 0 ]] && die "Unable to clear maintenance exclusion window"
+        done
+    fi
+
+    INDEX=0
+    for column_name in ${MAINTENANCE_EXCLUSION_NAMES[@]}; do
+      column_start=${MAINTENANCE_EXCLUSION_STARTS[${INDEX}]}
+      column_end=${MAINTENANCE_EXCLUSION_ENDS[${INDEX}]}
+
+      name=$(parse_csv_required "$CLUSTER_INTENT" "$column_name")
+      start=$(parse_csv_required "$CLUSTER_INTENT" "$column_start")
+      end=$(parse_csv_required "$CLUSTER_INTENT" "$column_end")
+
+      gcloud edge-cloud container clusters update $CLUSTER_NAME \
+          --project=$FLEET_PROJECT_ID \
+          --location=$LOCATION \
+          --add-maintenance-exclusion-name=$name \
+          --add-maintenance-exclusion-start=$start \
+          --add-maintenance-exclusion-end=$end
+
+      [[ $? -ne 0 ]] && die "Unable to add maintenance exclusion window"
+
+      ((INDEX++))
+    done
 
     for vlan in $(echo $SUBNET_VLANS | csvtool transpose -); do
       EXISTING_VLAN=$(gcloud edge-cloud networking subnets list --location $LOCATION \
