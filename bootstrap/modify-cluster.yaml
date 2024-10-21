@@ -149,16 +149,21 @@ steps:
       column_start=${MAINTENANCE_EXCLUSION_STARTS[${INDEX}]}
       column_end=${MAINTENANCE_EXCLUSION_ENDS[${INDEX}]}
 
-      name=$(parse_csv_required "$CLUSTER_INTENT" "$column_name")
-      start=$(parse_csv_required "$CLUSTER_INTENT" "$column_start")
-      end=$(parse_csv_required "$CLUSTER_INTENT" "$column_end")
+      name=$(parse_csv_optional "$CLUSTER_INTENT" "$column_name")
+      start=$(parse_csv_optional "$CLUSTER_INTENT" "$column_start")
+      end=$(parse_csv_optional "$CLUSTER_INTENT" "$column_end")
 
-      gcloud edge-cloud container clusters update $CLUSTER_NAME \
-          --project=$FLEET_PROJECT_ID \
-          --location=$LOCATION \
-          --add-maintenance-exclusion-name=$name \
-          --add-maintenance-exclusion-start=$start \
-          --add-maintenance-exclusion-end=$end
+      if [[ -z "${name}" || -z ${start} || -z ${end} ]]; then
+        echo "All maintenance exclusion fields are not set, skipping ${column_name}"
+      else
+        gcloud edge-cloud container clusters update $CLUSTER_NAME \
+            --project=$FLEET_PROJECT_ID \
+            --location=$LOCATION \
+            --add-maintenance-exclusion-name=$name \
+            --add-maintenance-exclusion-start=$start \
+            --add-maintenance-exclusion-end=$end
+      fi
+
 
       [[ $? -ne 0 ]] && die "Unable to add maintenance exclusion window"
 
