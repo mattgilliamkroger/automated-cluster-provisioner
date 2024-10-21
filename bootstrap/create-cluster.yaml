@@ -251,8 +251,13 @@ steps:
 
       kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=PlatformHealthy \
           --timeout=1h || die "Platform is not healthy after 1h"
+
+      # Calculate workload timeout by removing non-workload related buffer time from the over build timeout.
+      # ($TIMEOUT_IN_SECONDS) - (1h for platform health) - (1h for cluster health) - (10m for extra buffer)
+      WORKLOAD_TIMEOUT="$(($TIMEOUT_IN_SECONDS-"130"))"
+
       kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=WorkloadsHealthy \
-          --timeout=6h || die "Workloads are not healthy after 6h"
+          --timeout="${WORKLOAD_TIMEOUT}s" || die "Workloads are not healthy after ${WORKLOAD_TIMEOUT}s"
     fi
     
     if [[ -n "${ZONE_NAME_FROM_SOT}" ]]; then
@@ -290,9 +295,9 @@ steps:
   - 'GIT_SECRETS_PROJECT_ID=$_GIT_SECRETS_PROJECT_ID'
   - 'SKIP_HEALTH_CHECK=$_SKIP_HEALTH_CHECK'
   - 'SKIP_IDENTITY_SERVICE=$_SKIP_IDENTITY_SERVICE'
+  - 'TIMEOUT_IN_SECONDS=$_TIMEOUT_IN_SECONDS'
   - 'STORE_ID=$_STORE_ID'
   - 'ZONE=$_ZONE'
 
-timeout: 28800s
 options:
   logging: CLOUD_LOGGING_ONLY

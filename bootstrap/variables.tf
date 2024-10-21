@@ -144,3 +144,9 @@ variable "hardware_management_api_endpoint_override" {
   description = "Google Distributed Hardware Management API. Leave empty to use default api endpoint."
   default     = ""
 }
+
+variable "cluster-creation-timeout" {
+  description = "Cloud Build timeout in seconds for cluster creation. This should account for time to create the cluster, configure core services (ConfigSync, Robin, VMRuntime, etc..), and time for any workload configuration needed before the healthchecks pass."
+  default     = "28800"
+  type        = number
+}

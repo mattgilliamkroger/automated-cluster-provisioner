@@ -26,6 +26,7 @@ locals {
     { _SOURCE_OF_TRUTH_PATH = var.source_of_truth_path },
     { _GIT_SECRET_ID = var.git_secret_id },
     { _GIT_SECRETS_PROJECT_ID = local.project_id_secrets },
+    { _TIMEOUT_IN_SECONDS = var.cluster-creation-timeout },
     var.skip_identity_service ? { _SKIP_IDENTITY_SERVICE = "TRUE" } : {},
   )
   project_id_fleet   = coalesce(var.project_id_fleet, var.project_id)
@@ -89,7 +90,7 @@ resource "google_cloudbuild_trigger" "create-cluster" {
 
   build {
     substitutions = local.cloud_build_substitions
-    timeout       = try(local.cloud_build_inline_create_cluster["timeout"], "28800s")
+    timeout       = "${var.cluster-creation-timeout}s"
 
     options {
       logging = try(local.cloud_build_inline_create_cluster["options"]["logging"], null)
