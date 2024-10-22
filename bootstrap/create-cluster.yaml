@@ -18,6 +18,7 @@ steps:
   id: Read cluster intent, create cluster, and configure configsync
   script: |
     #!/usr/bin/env bash
+    # shellcheck disable=SC2155
     set +x
     set -o pipefail
 
@@ -216,12 +217,12 @@ steps:
     envsubst < apply-spec.yaml.template > apply-spec.yaml
 
     gcloud secrets versions access latest --secret=$GIT_TOKEN_SECRETS_MANAGER_NAME \
-        --project $SECRETS_PROJECT_ID >> $(pwd)/git-creds
+        --project $SECRETS_PROJECT_ID >> "$(pwd)/git-creds"
 
     kubectl create ns config-management-system --dry-run=client -o yaml | kubectl apply -f -
 
     kubectl create secret generic git-creds --namespace="config-management-system" \
-        --from-literal=username=default --from-file=token=$(pwd)/git-creds \
+        --from-literal=username=default --from-file=token="$(pwd)/git-creds" \
         --dry-run=client -o yaml | kubectl apply -f -
 
     gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME \

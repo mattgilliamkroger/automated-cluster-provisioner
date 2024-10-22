@@ -18,6 +18,7 @@ steps:
   id: Read cluster intent and update cluster
   script: |
     #!/usr/bin/env bash
+    # shellcheck disable=SC2155
     set +x
     set -o pipefail
 
@@ -145,7 +146,7 @@ steps:
     fi
 
     INDEX=0
-    for column_name in ${MAINTENANCE_EXCLUSION_NAMES[@]}; do
+    for column_name in "${MAINTENANCE_EXCLUSION_NAMES[@]}"; do
       column_start=${MAINTENANCE_EXCLUSION_STARTS[${INDEX}]}
       column_end=${MAINTENANCE_EXCLUSION_ENDS[${INDEX}]}
 
