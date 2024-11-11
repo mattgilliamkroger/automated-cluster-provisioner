@@ -274,6 +274,9 @@ steps:
     curl -L https://github.com/kubevirt/kubevirt/releases/download/${VIRTCTL_VERSION}/virtctl-${VIRTCTL_VERSION}-linux-amd64 -o virtctl
     chmod +x virtctl
 
+    echo "Waiting 30m before shutting down VMs"
+    sleep 30m
+
     echo "Shutting down running VMs"
     for vm in $(kubectl get vmi -n vm-workloads --no-headers | awk '{print $1}'); do
       echo "Shutting down $vm"
