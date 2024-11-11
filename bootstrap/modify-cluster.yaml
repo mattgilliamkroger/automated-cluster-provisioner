@@ -31,7 +31,7 @@ steps:
       input="$1"
       column="$2"
 
-      output=$(echo "$input" | csvtool namedcol "$column" - | csvtool drop 1 -)
+      output=$(echo "$input" | csvtool namedcol "$column" - | csvtool drop 1 - | tr -d '"')
 
       [[ $? -ne 0 ]] && die "Missing required parameter $2"
 
@@ -46,7 +46,7 @@ steps:
       input="$1"
       column="$2"
 
-      output=$(echo "$input" | csvtool namedcol "$column" - | csvtool drop 1 -)
+      output=$(echo "$input" | csvtool namedcol "$column" - | csvtool drop 1 - | tr -d '"')
 
       echo "$output"
     }
@@ -81,7 +81,7 @@ steps:
     export MAINTENANCE_WINDOW_START=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_start")
     export MAINTENANCE_WINDOW_END=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_end")
     export MAINTENANCE_WINDOW_RECURRENCE=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_recurrence")
-    export SUBNET_VLANS=$(parse_csv_optional "$CLUSTER_INTENT" "subnet_vlans" | tr -d '"')
+    export SUBNET_VLANS=$(parse_csv_optional "$CLUSTER_INTENT" "subnet_vlans")
 
     export MAINTENANCE_EXCLUSION_NAMES=$(echo "$CLUSTER_INTENT" | head -n1 | tr , '\n' | tr -d '"' | sort -n | grep 'maintenance_exclusion_name.*')
     export MAINTENANCE_EXCLUSION_STARTS=$(echo "$CLUSTER_INTENT" | head -n1 | tr , '\n' |  tr -d '"' | sort -n | grep 'maintenance_exclusion_start.*')
