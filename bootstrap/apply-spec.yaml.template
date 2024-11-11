@@ -9,3 +9,4 @@ spec:
     syncBranch: $SYNC_BRANCH
     policyDir: $SYNC_DIR
     secretType: token
+  $CS_VERSION_YAML

@@ -214,6 +214,10 @@ steps:
     gsutil cp gs://$CLUSTER_INTENT_BUCKET/apply-spec.yaml.template .
     gsutil cp gs://$CLUSTER_INTENT_BUCKET/auth-config.yaml .
 
+    if [[ -n "$CS_VERSION" ]]; then
+      export CS_VERSION_YAML="version: $CS_VERSION"
+    fi
+
     envsubst < apply-spec.yaml.template > apply-spec.yaml
 
     gcloud secrets versions access latest --secret=$GIT_TOKEN_SECRETS_MANAGER_NAME \
@@ -262,12 +266,6 @@ steps:
           --timeout="${WORKLOAD_TIMEOUT}s" || die "Workloads are not healthy after ${WORKLOAD_TIMEOUT}s"
     fi
     
-    if [[ -n "${ZONE_NAME_FROM_SOT}" ]]; then
-      echo "Zone name is defined in SOT... skipping zone signal completion."
-    else
-      zone_signal_complete "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}"
-    fi
-
     set -eE
     trap 'die "Error shutting down VMs"' ERR
 
@@ -284,6 +282,14 @@ steps:
       ./virtctl stop -n vm-workloads $vm
     done
 
+    set +eE
+    trap - ERR
+
+    if [[ -n "${ZONE_NAME_FROM_SOT}" ]]; then
+      echo "Zone name is defined in SOT... skipping zone signal completion."
+    else
+      zone_signal_complete "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}"
+    fi
 
     echo "Cluster Creation Succeeded: $CLUSTER_NAME"
 
@@ -303,6 +309,7 @@ steps:
   - 'TIMEOUT_IN_SECONDS=$_TIMEOUT_IN_SECONDS'
   - 'STORE_ID=$_STORE_ID'
   - 'ZONE=$_ZONE'
+  - 'CS_VERSION=$_CS_VERSION'
 
 options:
   logging: CLOUD_LOGGING_ONLY
