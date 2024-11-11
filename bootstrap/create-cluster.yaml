@@ -254,8 +254,9 @@ steps:
           --timeout=1h || die "Platform is not healthy after 1h"
 
       # Calculate workload timeout by removing non-workload related buffer time from the over build timeout.
-      # ($TIMEOUT_IN_SECONDS) - (1h for platform health) - (1h for cluster health) - (10m for extra buffer)
-      WORKLOAD_TIMEOUT="$(($TIMEOUT_IN_SECONDS-"130"))"
+      # ($TIMEOUT_IN_SECONDS) - (1h for platform health) - (1h for cluster health)
+      #                       - (10m for extra buffer) - (30m for vm wait)
+      WORKLOAD_TIMEOUT="$(($TIMEOUT_IN_SECONDS-"9600"))"
 
       kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=WorkloadsHealthy \
           --timeout="${WORKLOAD_TIMEOUT}s" || die "Workloads are not healthy after ${WORKLOAD_TIMEOUT}s"
