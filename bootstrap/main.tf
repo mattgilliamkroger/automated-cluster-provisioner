@@ -29,6 +29,7 @@ locals {
     { _TIMEOUT_IN_SECONDS = var.cluster-creation-timeout },
     { _CS_VERSION = var.default-config-sync-version },
     var.skip_identity_service ? { _SKIP_IDENTITY_SERVICE = "TRUE" } : {},
+    var.bart_create_bucket == true ? { _BART_CREATE_BUCKET = "TRUE" } : { _BART_CREATE_BUCKET = "FALSE" },
   )
   project_id_fleet   = coalesce(var.project_id_fleet, var.project_id)
   project_id_secrets = coalesce(var.project_id_secrets, var.project_id)
@@ -484,7 +485,7 @@ resource "google_cloudfunctions2_function" "zone-active-metric" {
 }
 
 resource "google_cloud_run_service_iam_member" "zone-active-metric-member" {
-  count       = var.deploy-zone-active-monitor ? 1 : 0
+  count    = var.deploy-zone-active-monitor ? 1 : 0
   location = google_cloudfunctions2_function.zone-active-metric[0].location
   service  = google_cloudfunctions2_function.zone-active-metric[0].name
   role     = "roles/run.invoker"
@@ -492,7 +493,7 @@ resource "google_cloud_run_service_iam_member" "zone-active-metric-member" {
 }
 
 resource "google_cloud_scheduler_job" "zone-active-metric-job" {
-  count       = var.deploy-zone-active-monitor ? 1 : 0
+  count            = var.deploy-zone-active-monitor ? 1 : 0
   name             = "zone-active-metric-scheduler-${var.environment}"
   description      = "Trigger the ${google_cloudfunctions2_function.zone-active-metric[0].name}"
   schedule         = "*/10 * * * *" # Run every 10 minutes

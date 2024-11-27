@@ -157,3 +157,9 @@ variable "default-config-sync-version" {
   default     = ""
   type        = string
 }
+
+variable "bart_create_bucket" {
+  description = "Create a GCS bucket for cluster backup and recovery."
+  type        = bool
+  default     = false
+}

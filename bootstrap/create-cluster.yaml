@@ -124,6 +124,7 @@ steps:
     export SUBNET_VLANS=$(parse_csv_optional "$CLUSTER_INTENT" "subnet_vlans")
     export ZONE_NAME_FROM_SOT=$(parse_csv_optional "$CLUSTER_INTENT" "zone_name")
 
+
     if [ -n "${EDGE_CONTAINER_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/edgecontainer to $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE"
       gcloud config set api_endpoint_overrides/edgecontainer $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE
@@ -285,6 +286,17 @@ steps:
     set +eE
     trap - ERR
 
+    if [ "${BART_CREATE_BUCKET}" = "TRUE" ]; then
+      if [[ ! -z $(gcloud storage buckets describe gs://${CLUSTER_NAME}-bart-backup --project=${FLEET_PROJECT_ID}) ]]; then
+        echo "GCS bucket already exists"
+      else
+        echo "Creating and setting up new BART related GCS bucket"
+        gcloud storage buckets create gs://${CLUSTER_NAME}-bart-backup --location=${LOCATION} --project=${FLEET_PROJECT_ID}
+      fi
+    else
+      echo "Backups for this cluster is not enabled. Not creating GCS bucket."
+    fi
+
     if [[ -n "${ZONE_NAME_FROM_SOT}" ]]; then
       echo "Zone name is defined in SOT... skipping zone signal completion."
     else
@@ -310,6 +322,7 @@ steps:
   - 'STORE_ID=$_STORE_ID'
   - 'ZONE=$_ZONE'
   - 'CS_VERSION=$_CS_VERSION'
+  - 'BART_CREATE_BUCKET=$_BART_CREATE_BUCKET'
 
 options:
   logging: CLOUD_LOGGING_ONLY
