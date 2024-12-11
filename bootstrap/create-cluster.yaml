@@ -30,11 +30,13 @@ steps:
 
     function die() {
       echo "Cluster Creation Failed: $1"
+      zone_signal "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}" FACTORY_TURNUP_CHECKS_FAILED
       exit 1
     }
 
-    function zone_signal_complete() {
+    function zone_signal() {
       zone_store_path=$1
+      state_signal=$2
       [[ -z "${zone_store_path}" ]] && { echo "zone_store_path not provided"; return ; }
 
       SIGNAL_URI="${HARDWARE_MANAGMENT_API_ENDPOINT}/${HARDWARE_MANAGMENT_API_VERSION}/${zone_store_path}:signal"
@@ -42,7 +44,7 @@ steps:
             -H "Content-Type: application/json" \
             -X POST \
             "${SIGNAL_URI}" \
-            -d '{"state_signal": "READY_FOR_SITE_TURNUP"}')
+            -d "{\"state_signal\": \"${state_signal}\"}")
       if [[ $? -ne 0 ]]; then
         echo "Failed to signal the zone state"
         return 1
@@ -300,7 +302,7 @@ steps:
     if [[ -n "${ZONE_NAME_FROM_SOT}" ]]; then
       echo "Zone name is defined in SOT... skipping zone signal completion."
     else
-      zone_signal_complete "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}"
+      zone_signal "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}" READY_FOR_SITE_TURNUP
     fi
 
     echo "Cluster Creation Succeeded: $CLUSTER_NAME"
