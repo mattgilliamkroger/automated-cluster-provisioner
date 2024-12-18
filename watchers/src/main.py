@@ -120,12 +120,17 @@ def zone_watcher(req: flask.Request):
         req = edgecontainer.ListMachinesRequest(
             parent=ec_client.common_location_path(machine_project, location)
         )
-        res_pager = ec_client.list_machines(req)
-        for m in res_pager:
-            if m.zone not in machine_lists:
-                machine_lists[m.zone] = [m]
-            else:
-                machine_lists[m.zone].append(m)
+        
+        try:
+            res_pager = ec_client.list_machines(req)
+            for m in res_pager:
+                if m.zone not in machine_lists:
+                    machine_lists[m.zone] = [m]
+                else:
+                    machine_lists[m.zone].append(m)
+        except Exception as err:
+            logger.error(f"Error listing machines for project: {machine_project}, location: {location}")
+            logger.error(err)
 
     # if cluster already present in the zone, skip this zone
     # method: check all the machines in the zone, and check if "hosted_node" has any value in it
@@ -232,7 +237,6 @@ def cluster_watcher(req: flask.Request):
 
     cb_client = cloudbuild.CloudBuildClient()
 
-    # if cluster not present, skip this cluster
     count = 0
     for proj_loc_key in config_zone_info:
         (project_id, location) = proj_loc_key
@@ -243,8 +247,15 @@ def cluster_watcher(req: flask.Request):
         req_c = edgecontainer.ListClustersRequest(
             parent=ec_client.common_location_path(project_id, location)
         )
-        res_pager_c = ec_client.list_clusters(req_c)
-        cl_list = [c for c in res_pager_c]  # all the clusters in the location
+        
+        try:
+            res_pager_c = ec_client.list_clusters(req_c)
+            cl_list = [c for c in res_pager_c]  # all the clusters in the location
+        except Exception as err:
+            logger.error(f"Error listing clusters for project: {project_id}, location: {location}")
+            logger.error(err)
+            continue
+
         for store_id in config_zone_info[proj_loc_key]:
             store_info = config_zone_info[proj_loc_key][store_id]
 
@@ -332,19 +343,19 @@ def cluster_watcher(req: flask.Request):
             req_n = edgenetwork.ListSubnetsRequest(
                 parent=f'{en_client.common_location_path(store_info["machine_project_id"], location)}/zones/{zone}'
             )
-            res_pager_n = en_client.list_subnets(req_n)
-            subnet_list = [{'vlan_id': net.vlan_id, 'ipv4_cidr': sorted(net.ipv4_cidr)} for net in res_pager_n]
+
+            try:
+                res_pager_n = en_client.list_subnets(req_n)
+                subnet_list = [{'vlan_id': net.vlan_id, 'ipv4_cidr': sorted(net.ipv4_cidr)} for net in res_pager_n]
+            except Exception as err:
+                logger.error(f"Error listing subnets for project: {project_id}, location: {location}, zone: {zone}")
+                logger.error(err)
+                continue
+                
             subnet_list.sort(key=lambda x: x['vlan_id'])
             logger.debug(subnet_list)
             try:
-                # as of now we only need to consider vlan_id for GDCE device (config-8)
-                # Needs to compare ipv4_cidr if this script applies to GDCE rack (config-1 or config-2)
-                # config_subnet_list = [{'vlan_id': int(v), 'ipv4_cidr': [n]} for v, n in zip(
-                #     config_zone_info[loc][z]['SUBNET_VLANS'].split(','),
-                #     config_zone_info[loc][z]['SUBNET_IPV4_ADDRESSES'].split(',')
-                # )].sort(key=lambda x: x['vlan_id'])
-                # if subnet_list != config_subnet_list:
-                #     has_update = True
+                # Only consider vlan ids for updates (L2), L3 not handled
                 for desired_subnet in store_info['subnet_vlans'].split(','):
                     try:
                         vlan_id = int(desired_subnet)
@@ -379,9 +390,10 @@ def cluster_watcher(req: flask.Request):
                 logger.info(f'triggering cloud build for {zone}')
                 logger.info(f'trigger: {params.cloud_build_trigger}')
                 opr = cb_client.run_build_trigger(request=req)
-                # response = opr.result()
             except Exception as err:
+                logger.error(f'failed to trigger cloud build for {zone}')
                 logger.error(err)
+                continue
 
             count += len(config_zone_info[proj_loc_key])
 
