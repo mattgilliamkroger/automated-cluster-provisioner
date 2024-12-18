@@ -530,23 +530,6 @@ def read_intent_data(params, named_key):
     
     return config_zone_info
 
-def get_gcp_compute_engine_metadata(project: str) -> Dict[str, str]:
-    """Returns the compute engine metadata from the GCP project as a dict
-    Args:
-        project: project name or id
-    Returns:
-        metadata as a dict
-    """
-    from google.cloud import compute_v1
-    client = compute_v1.ProjectsClient()
-    request = compute_v1.GetProjectRequest(
-        project=project,
-    )
-    response = client.get(request=request)
-    metadata = {item.key: item.value for item in response.common_instance_metadata.items}
-    return metadata
-
-
 def get_zone(store_id: str) -> Zone:
     """Return Zone info.
     Args:
