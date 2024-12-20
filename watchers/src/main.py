@@ -31,6 +31,7 @@ from google.cloud import edgecontainer
 from google.cloud import edgenetwork
 from google.cloud import secretmanager
 from google.cloud import gdchardwaremanagement_v1alpha
+from google.cloud import gkehub_v1
 from google.cloud.gdchardwaremanagement_v1alpha import Zone
 from google.cloud.devtools import cloudbuild
 from google.cloud import monitoring_v3
@@ -222,6 +223,7 @@ def cluster_watcher(req: flask.Request):
 
     edgecontainer_api_endpoint_override = os.environ.get("EDGE_CONTAINER_API_ENDPOINT_OVERRIDE")
     edgenetwork_api_endpoint_override = os.environ.get("EDGE_NETWORK_API_ENDPOINT_OVERRIDE")
+    gkehub_api_endpoint_override = os.environ.get("GKEHUB_API_ENDPOINT_OVERRIDE")
 
     if edgecontainer_api_endpoint_override:
         op = client_options.ClientOptions(api_endpoint=urlparse(edgecontainer_api_endpoint_override).netloc)
@@ -234,6 +236,12 @@ def cluster_watcher(req: flask.Request):
         en_client = edgenetwork.EdgeNetworkClient(client_options=op)
     else:  # use the default prod endpoint
         en_client = edgenetwork.EdgeNetworkClient()
+
+    if gkehub_api_endpoint_override:
+        op = client_options.ClientOptions(api_endpoint=urlparse(gkehub_api_endpoint_override).netloc)
+        gkehub_client = gkehub_v1.GkeHubClient(client_options=op)
+    else:  # use the default prod endpoint
+        gkehub_client = gkehub_v1.GkeHubClient()
 
     cb_client = cloudbuild.CloudBuildClient()
 
@@ -250,7 +258,7 @@ def cluster_watcher(req: flask.Request):
         
         try:
             res_pager_c = ec_client.list_clusters(req_c)
-            cl_list = [c for c in res_pager_c]  # all the clusters in the location
+            clusters = [c for c in res_pager_c]  # all the clusters in the location
         except Exception as err:
             logger.error(f"Error listing clusters for project: {project_id}, location: {location}")
             logger.error(err)
@@ -271,7 +279,7 @@ def cluster_watcher(req: flask.Request):
                 continue
 
             # filter the cluster in the GDCE zone, should be at most 1
-            zone_cluster_list = [c for c in cl_list if c.control_plane.local.node_location
+            zone_cluster_list = [c for c in clusters if c.control_plane.local.node_location
                                  == zone]
             if len(zone_cluster_list) == 0:
                 logger.warning(f'No lcp cluster found in {zone}')
@@ -338,7 +346,6 @@ def cluster_watcher(req: flask.Request):
                         has_update = True
                         break
 
-
             # get subnet vlan ids and ip addresses of this GDCE Zone
             req_n = edgenetwork.ListSubnetsRequest(
                 parent=f'{en_client.common_location_path(store_info["machine_project_id"], location)}/zones/{zone}'
@@ -371,6 +378,31 @@ def cluster_watcher(req: flask.Request):
                         logger.error(f"VLAN {actual_vlan_id} is defined in the environment, but not in the source of truth. The subnet will need to be manually deleted from the environment.")
             except Exception as err:
                 logger.error(err)
+
+            # Check for fleet labels
+            cluster_name = store_info['cluster_name']
+
+            ## labels are specified in SoT in the following way: "key1=value1,key2=value2,key3=value3"
+            if "labels" in store_info:
+                labels = store_info['labels'].strip()
+            else:
+                labels = ""
+
+            # if labels is not defined in SoT, then don't trigger an update
+            if labels:
+                desired_labels = {}
+
+                for label in labels.split(","):
+                    kv_pair = label.split("=")
+                    desired_labels[kv_pair[0]] = kv_pair[1]
+
+                req = gkehub_v1.GetMembershipRequest(name=f"projects/{project_id}/locations/global/memberships/{cluster_name}")
+                res = gkehub_client.get_membership(request=req)
+
+                membership_labels = res.labels
+
+                if (desired_labels != membership_labels):
+                    has_update = True
 
             if not has_update:
                 continue

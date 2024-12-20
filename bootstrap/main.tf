@@ -408,6 +408,7 @@ resource "google_cloudfunctions2_function" "cluster-watcher" {
       EDGE_CONTAINER_API_ENDPOINT_OVERRIDE     = var.edge_container_api_endpoint_override
       EDGE_NETWORK_API_ENDPOINT_OVERRIDE       = var.edge_network_api_endpoint_override
       HARDWARE_MANAGMENT_API_ENDPOINT_OVERRIDE = var.hardware_management_api_endpoint_override
+      GKEHUB_API_ENDPOINT_OVERRIDE             = var.gke_hub_api_endpoint_override
       SOURCE_OF_TRUTH_REPO                     = var.source_of_truth_repo
       SOURCE_OF_TRUTH_BRANCH                   = var.source_of_truth_branch
       SOURCE_OF_TRUTH_PATH                     = var.source_of_truth_path

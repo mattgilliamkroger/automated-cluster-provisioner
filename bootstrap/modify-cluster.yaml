@@ -82,6 +82,7 @@ steps:
     export MAINTENANCE_WINDOW_END=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_end")
     export MAINTENANCE_WINDOW_RECURRENCE=$(parse_csv_optional "$CLUSTER_INTENT" "maintenance_window_recurrence")
     export SUBNET_VLANS=$(parse_csv_optional "$CLUSTER_INTENT" "subnet_vlans")
+    export LABELS=$(parse_csv_optional "$CLUSTER_INTENT" "labels")
 
     export MAINTENANCE_EXCLUSION_NAMES=$(echo "$CLUSTER_INTENT" | head -n1 | tr , '\n' | tr -d '"' | sort -n | grep 'maintenance_exclusion_name.*')
     export MAINTENANCE_EXCLUSION_STARTS=$(echo "$CLUSTER_INTENT" | head -n1 | tr , '\n' |  tr -d '"' | sort -n | grep 'maintenance_exclusion_start.*')
@@ -170,6 +171,10 @@ steps:
 
       ((INDEX++))
     done
+
+    if [ -n "$LABELS" ]; then
+      gcloud container fleet memberships update --clear-labels --update-labels $LABELS
+    fi
 
     for vlan in $(echo $SUBNET_VLANS | csvtool transpose -); do
       EXISTING_VLAN=$(gcloud edge-cloud networking subnets list --location $LOCATION \
