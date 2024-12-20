@@ -117,6 +117,7 @@ def zone_watcher(req: flask.Request):
 
     # get machines list per machine_project per location, and group by GDCE zone
     machine_lists = {}
+    unprocessed_zones = {} # used to track zones outside of SoT.
     for (machine_project, location) in config_zone_info:
         req = edgecontainer.ListMachinesRequest(
             parent=ec_client.common_location_path(machine_project, location)
@@ -127,6 +128,7 @@ def zone_watcher(req: flask.Request):
             for m in res_pager:
                 if m.zone not in machine_lists:
                     machine_lists[m.zone] = [m]
+                    unprocessed_zones[m.zone] = (machine_project, location)
                 else:
                     machine_lists[m.zone].append(m)
         except Exception as err:
@@ -160,6 +162,7 @@ def zone_watcher(req: flask.Request):
 
             count_of_free_machines = 0
             cluster_exists = False
+            unprocessed_zones.pop(zone)
             for m in machine_lists[zone]:
                 if len(m.hosted_node.strip()) > 0:  # if there is any value, consider there is a cluster
                     # check if target cluster already exists
@@ -208,6 +211,9 @@ def zone_watcher(req: flask.Request):
             count += len(config_zone_info[proj_loc_key])
 
     logger.info(f'total zones triggered = {count}')
+
+    for zone, (machine_project, location) in unprocessed_zones.items():
+        logger.info(f'Zone found in environment but not in cluster source of truth. "projects/{machine_project}/locations/{location}/zones/{zone}"')
 
     return f'total zones triggered = {count}'
 
@@ -609,6 +615,7 @@ def verify_zone_state(store_id: str, recreate_on_delete: bool) -> bool:
     """
     state = get_zone_state(store_id)
     if state == Zone.State.READY_FOR_CUSTOMER_FACTORY_TURNUP_CHECKS:
+        logger.info(f'Store is ready for provisioning: "{store_id}"')
         return True
 
     if state == Zone.State.ACTIVE and recreate_on_delete:

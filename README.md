@@ -16,6 +16,9 @@ This solution automates the provisioning and configuration of Google Distributed
   - [Installation](#installation)
   - [Usage](#usage)
   - [Cluster Intent Data Format](#cluster-intent-data-format)
+  - [Operations](#operations)
+    - [Metrics](#metrics)
+    - [Alerts](#alerts)
   - [Terraform Details](#terraform-details)
     - [Providers](#providers)
     - [Modules](#modules)
@@ -139,6 +142,32 @@ Once the solution is deployed, most usage interaction is expected to happen thro
 | maintenance_exclusion_end_1               | no       | (Optional.) End of maintenance exclusion window. Supports up to 3 exclusion windows by specifying additional columns `maintenance_exclusion_end_2` and `maintenance_exclusion_end_3`                                          |
 | subnet_vlans                              | no       | This is used in the cluster provisioning automation to call the edge network API to create a VLANs for a particular edge-zone                                                                                                 |
 | recreate_on_delete                        | yes      | Whether to recreate a cluster with a zone state of `ACTIVE`. This can be used for automated re-provisioning (delete the cluster and it'll automatically re-create).                                                           |
+
+## Operations
+
+### Metrics
+
+This table describes the metrics available to monitor cluster provisioning.
+
+| Name                     | Type  | Tags         | Description                                                                     |
+| ------------------------ | ----- | ------------ | ------------------------------------------------------------------------------- |
+| unknown-zones            | Count | zone         | Zones found in the environment, but are not specified as part of cluster intent |
+| ready-stores             | Count | store_id     | Store edge zones ready for provisioning                                         |
+| cluster-creation-success | Count | cluster_name | Cluster Creation Success Count                                                  |
+| cluster-creation-failure | Count | cluster_name | Cluster Creation Failure Count                                                  |
+| cluster-modify-success   | Count | cluster_name | Cluster Modify Success Count                                                    |
+| cluster-modify-failure   | Count | cluster_name | Cluster Modify Failure Count                                                    |
+
+### Alerts
+
+This table describes the alerts created to monitoring cluster provisioning. These alerts are intended to be examples and should be tuned for your environment.
+
+| Name                     | Description                                                                                                          |
+|--------------------------|----------------------------------------------------------------------------------------------------------------------|
+| unknown-zone-alert       | Alerts whenever an unknown zone not defined in the cluster intent source of truth has been found in the environment. |
+| cluster-creation-failure | Alerts when cluster creation has failed                                                                              |
+| cluster-modify-failure   | Alerts when cluster modification has failed                                                                          |
+
 ## Terraform Details
 
 ### Providers

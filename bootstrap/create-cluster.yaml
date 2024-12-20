@@ -29,7 +29,8 @@ steps:
     HARDWARE_MANAGMENT_API_VERSION="v1alpha"
 
     function die() {
-      echo "Cluster Creation Failed: $1"
+      echo "$1"
+      echo "Cluster Creation Failed: $CLUSTER_NAME"
       zone_signal "projects/${MACHINE_PROJECT_ID}/locations/${LOCATION}/zones/${STORE_ID}" FACTORY_TURNUP_CHECKS_FAILED
       exit 1
     }

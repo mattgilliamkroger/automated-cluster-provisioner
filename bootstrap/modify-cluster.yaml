@@ -23,7 +23,8 @@ steps:
     set -o pipefail
 
     function die() {
-      echo "Cluster Modify Failed: $1"
+      echo "$1"
+      echo "Cluster Modify Failed: $CLUSTER_NAME"
       exit 1
     }
 
@@ -196,7 +197,7 @@ steps:
       fi
     done
 
-    echo "Cluster Modify Succeeded: Completed reconciling $NODE_LOCATION"
+    echo "Cluster Modify Succeeded: $CLUSTER_NAME"
 
   env:
   - 'EDGE_CONTAINER_API_ENDPOINT_OVERRIDE=$_EDGE_CONTAINER_API_ENDPOINT_OVERRIDE'
