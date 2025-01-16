@@ -38,6 +38,7 @@ from google.cloud import monitoring_v3
 from google.protobuf.timestamp_pb2 import Timestamp
 from dateutil.parser import parse
 from typing import Dict
+from .maintenance_windows import MaintenanceExclusionWindow
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
@@ -312,45 +313,14 @@ def cluster_watcher(req: flask.Request):
                 has_update = True
             else:
                 # MW properties haven't changed, check exclusion windows
-                number_of_defined_columns = len([key for key in store_info.keys() if key.startswith("maintenance_exclusion_name")])
-                number_of_defined_exclusions = 0
-
-                for i in range(number_of_defined_columns):
-                    exclusion_name = store_info[f"maintenance_exclusion_name_{i+1}"]
-                    exclusion_start = store_info[f"maintenance_exclusion_start_{i+1}"]
-                    exclusion_end = store_info[f"maintenance_exclusion_end_{i+1}"]
-
-                    if (exclusion_name and exclusion_start and exclusion_end):
-                        number_of_defined_exclusions += 1
+                defined_exclusion_windows = MaintenanceExclusionWindow.get_exclusion_windows_from_sot(store_info)
 
                 # Retrieving maintenance window from API until property exists in client library response
                 mw = get_maintenance_window_property(zone_cluster_list[0].name)
-                number_of_actual_exclusions = 0
+                actual_exclusion_windows = MaintenanceExclusionWindow.get_exclusion_windows_from_api_response(mw)
 
-                if (mw and mw.get("maintenanceExclusions")):
-                    number_of_actual_exclusions = len(mw["maintenanceExclusions"])
-
-                if (number_of_actual_exclusions != number_of_defined_exclusions):
+                if defined_exclusion_windows != actual_exclusion_windows:
                     has_update = True
-
-                for i in range(number_of_defined_columns):
-                    if has_update:
-                        break
-
-                    exclusion_name = store_info[f"maintenance_exclusion_name_{i+1}"]
-                    exclusion_start = store_info[f"maintenance_exclusion_start_{i+1}"]
-                    exclusion_end = store_info[f"maintenance_exclusion_end_{i+1}"]
-
-                    actual_exclusion = [ex for ex in mw["maintenanceExclusions"] if ex["id"] == exclusion_name]
-
-                    if (len(actual_exclusion) == 0):
-                        has_update = True
-                        break
-
-                    if (parse(actual_exclusion[0]["window"]["startTime"]) != parse(exclusion_start) or
-                            parse(actual_exclusion[0]["window"]["endTime"]) != parse(exclusion_end)):
-                        has_update = True
-                        break
 
             # get subnet vlan ids and ip addresses of this GDCE Zone
             req_n = edgenetwork.ListSubnetsRequest(
