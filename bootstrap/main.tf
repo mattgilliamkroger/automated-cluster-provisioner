@@ -245,6 +245,12 @@ resource "google_project_iam_member" "zone-watcher-agent-cloud-build-editor" {
   member  = google_service_account.zone-watcher-agent.member
 }
 
+resource "google_project_iam_member" "zone-watcher-agent-fleet-viewer" {
+  project = var.project_id
+  role    = "roles/gkehub.viewer"
+  member  = google_service_account.zone-watcher-agent.member
+}
+
 resource "google_service_account_iam_member" "gdce-provisioning-agent-token-user" {
   service_account_id = google_service_account.gdce-provisioning-agent.name
   role               = "roles/iam.serviceAccountUser"
