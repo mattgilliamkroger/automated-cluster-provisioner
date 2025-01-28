@@ -174,7 +174,7 @@ steps:
     done
 
     if [ -n "$LABELS" ]; then
-      gcloud container fleet memberships update --clear-labels --update-labels $LABELS
+      gcloud container fleet memberships update $CLUSTER_NAME --clear-labels --update-labels $LABELS
     fi
 
     for vlan in $(echo $SUBNET_VLANS | csvtool transpose -); do

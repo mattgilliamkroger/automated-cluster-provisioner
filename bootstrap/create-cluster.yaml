@@ -213,7 +213,7 @@ steps:
     trap 'die "Error configuring cluster"' ERR
 
     if [ -n "$LABELS" ]; then
-      gcloud container fleet memberships update --clear-labels --update-labels $LABELS
+      gcloud container fleet memberships update $CLUSTER_NAME --clear-labels --update-labels $LABELS
     fi
 
     export KUBECONFIG="$(pwd)/gateway-kubeconfig"
