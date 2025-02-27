@@ -29,7 +29,6 @@ from src.main import WatcherParameters
 class TestZoneWatcherIntegration(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get('RUN_PERF_TEST'), "Skipping perf test")
-    @mock.patch("src.main.verify_zone_state")
     @mock.patch("src.main.get_zone")
     @mock.patch("google.cloud.devtools.cloudbuild.CloudBuildClient")
     @mock.patch("google.cloud.edgecontainer.EdgeContainerClient")
