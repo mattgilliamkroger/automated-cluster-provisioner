@@ -26,7 +26,7 @@ from src.main import Zone
 from src.main import WatcherParameters
 
 
-class TestZoneWatcherIntegration(unittest.TestCase):
+class TestWatcherIntegration(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get('RUN_PERF_TEST'), "Skipping perf test")
     @mock.patch("src.main.get_zone")
@@ -102,6 +102,93 @@ class TestZoneWatcherIntegration(unittest.TestCase):
         mock_get_zone.assert_any_call('projects/project-0/locations/region-0/zones/store1')
         mock_get_zone.assert_any_call('projects/project-9/locations/region-4/zones/store50')
 
+    @unittest.skipUnless(os.environ.get('RUN_PERF_TEST'), "Skipping perf test")
+    @mock.patch("src.main.get_zone")
+    @mock.patch("google.cloud.devtools.cloudbuild.CloudBuildClient")
+    @mock.patch("google.cloud.edgenetwork.EdgeNetworkClient")
+    @mock.patch("google.cloud.edgecontainer.EdgeContainerClient")
+    @mock.patch("src.main.read_intent_data")
+    @mock.patch("src.main.get_parameters_from_environment")
+    def test_cluster_watcher_integration_multiple_stores(
+        self,
+        mock_get_parameters,
+        mock_read_intent_data,
+        mock_ec_client,
+        mock_en_client,
+        mock_cb_client,
+        mock_get_zone
+    ):
+        """
+        Tests the cluster_watcher function with variable number of projects, regions, and zones.
+        Endpoints to retrieve machines and zone state are mocked out with a tunable latency to test
+        the impact of different delay conditions on the function.
+        """
+
+        number_of_projects = 10
+        number_of_regions_within_project = 5
+        number_of_stores_within_region = 20
+        get_zone_latency = 0.5
+        list_subnets_latency = 0.5
+        list_machines_per_machine_latency = 0.05
+        list_clusters_per_cluster_latency = 0.1
+
+        print("Total clusters = ", number_of_projects * number_of_regions_within_project * number_of_stores_within_region)
+
+        # --- Setup Mock Data ---
+        # Mock environment parameters
+        params = WatcherParameters(
+            project_id="test-project",
+            secrets_project_id="test-project",
+            region="us-central1",
+            cloud_build_trigger="projects/test-project/locations/us-central1/triggers/test-trigger",
+            git_secret_id="secret-id",
+            source_of_truth_repo="test-repo",
+            source_of_truth_branch="main",
+            source_of_truth_path="main/",
+        )
+
+        mock_get_parameters.return_value = params 
+
+        intent_data = generate_cluster_intent(number_of_projects, number_of_regions_within_project, number_of_stores_within_region)
+        mock_read_intent_data.return_value = intent_data
+
+        mock_get_zone.side_effect = generate_get_zone_function(get_zone_latency)
+
+        mock_ec_client.return_value.list_machines.side_effect = generate_list_machines_function(list_machines_per_machine_latency, number_of_projects, number_of_regions_within_project, number_of_stores_within_region)
+        mock_ec_client.return_value.list_clusters.side_effect = generate_list_clusters_function(list_clusters_per_cluster_latency, number_of_projects, number_of_regions_within_project, number_of_stores_within_region)
+
+        # Ends up consumed as input for mocked out list_machines.
+        def common_location_path(project, location):
+            return f"projects/{project}/locations/{location}"
+
+        mock_ec_client.return_value.common_location_path.side_effect = common_location_path
+        mock_en_client.return_value.common_location_path.side_effect = common_location_path
+
+        def empty_list_subnets_with_delay(req):
+            time.sleep(list_subnets_latency)
+            return []
+
+        mock_en_client.return_value.list_subnets.side_effect = empty_list_subnets_with_delay
+
+        # Mock CloudBuildClient
+        mock_run_build_trigger = MagicMock()
+        mock_cb_client.return_value.run_build_trigger = (
+            mock_run_build_trigger
+        )
+
+        # --- Invoke the Function ---
+        req = MagicMock(spec=flask.Request)
+        main.cluster_watcher(req)
+
+        # --- Assertions ---
+        # Verify that the intent data was read
+        mock_read_intent_data.assert_called_once()
+
+        # Assert that get zones are being called for generated zones
+        mock_get_zone.assert_any_call('projects/project-0/locations/region-0/zones/store1')
+        mock_get_zone.assert_any_call('projects/project-1/locations/region-1/zones/store10')
+
+
 def generate_cluster_intent(number_of_projects, number_of_regions_within_project, number_of_stores_within_region):
 
     intent_data = {}
@@ -126,6 +213,9 @@ def generate_cluster_intent(number_of_projects, number_of_regions_within_project
                     "node_count": "3",
                     "recreate_on_delete": False,
                     "sync_branch": "main",
+                    "maintenance_window_recurrence": "",
+                    "maintenance_window_start": "",
+                    "maintenance_window_end": ""
                 }
 
                 z += 1
@@ -166,6 +256,37 @@ def generate_list_machines_function(delay_seconds_per_zone, number_of_projects, 
                     time.sleep(delay_seconds_per_zone)
 
         return iter(machines)
+
+    return list_machines
+
+def generate_list_clusters_function(delay_seconds_per_cluster, number_of_projects, number_of_regions_within_project, number_of_zones_within_region):
+    def list_machines(list_clusters_req):
+        project = list_clusters_req.parent.split("/")[1]
+        region = list_clusters_req.parent.split("/")[3]
+
+        clusters = []
+
+        z = 0
+
+        for p in range(number_of_projects):
+            for r in range(number_of_regions_within_project):
+                for s in range(number_of_zones_within_region):
+                    z += 1
+
+                    if (project != f"project-{p}" or region != f"region-{r}"):
+                        continue
+
+                    clusters.append(edgecontainer.Cluster(
+                            name=f"machine{z}01", control_plane=edgecontainer.Cluster.ControlPlane(
+                                local=edgecontainer.Cluster.ControlPlane.Local(
+                                    node_location=f"zone{z}"
+                                )
+                            )
+                        ))
+                    
+                    time.sleep(delay_seconds_per_cluster)
+
+        return iter(clusters)
 
     return list_machines
 
