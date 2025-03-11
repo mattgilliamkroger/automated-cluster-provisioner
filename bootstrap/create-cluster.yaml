@@ -241,10 +241,7 @@ steps:
         --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
 
     if [ -z "${SKIP_IDENTITY_SERVICE}" ]; then
-      gcloud container fleet identity-service enable --project $FLEET_PROJECT_ID
-
-      gcloud container fleet identity-service apply --membership=$CLUSTER_NAME \
-          --config=./auth-config.yaml --project $FLEET_PROJECT_ID
+      kubectl patch clientconfig default -n kube-public --type=merge -p '{"spec":{"authentication":[{"google":{"audiences":["//'${GKEHUB_API_ENDPOINT_OVERRIDE}'/projects/'${FLEET_PROJECT_ID}'/locations/global/memberships/'${CLUSTER_NAME}'"]},"name":"google-authentication-method"}]}}'
     fi
 
     set +eE
