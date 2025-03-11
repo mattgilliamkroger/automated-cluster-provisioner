@@ -133,9 +133,13 @@ steps:
       gcloud config set api_endpoint_overrides/edgecontainer $EDGE_CONTAINER_API_ENDPOINT_OVERRIDE
     fi
 
+
     if [ -n "${GKEHUB_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/gkehub to $GKEHUB_API_ENDPOINT_OVERRIDE"
       gcloud config set api_endpoint_overrides/gkehub $GKEHUB_API_ENDPOINT_OVERRIDE
+      GKEHUB_API_ENDPOINT="staging-gkehub.sandbox.googleapis.com"
+    else
+      GKEHUB_API_ENDPOINT="gkehub.googleapis.com"
     fi
 
     if [ -n "${EDGE_NETWORK_API_ENDPOINT_OVERRIDE:-}" ]; then
@@ -241,7 +245,7 @@ steps:
         --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
 
     if [ -z "${SKIP_IDENTITY_SERVICE}" ]; then
-      kubectl patch clientconfig default -n kube-public --type=merge -p '{"spec":{"authentication":[{"google":{"audiences":["//'${GKEHUB_API_ENDPOINT_OVERRIDE}'/projects/'${FLEET_PROJECT_ID}'/locations/global/memberships/'${CLUSTER_NAME}'"]},"name":"google-authentication-method"}]}}'
+      kubectl patch clientconfig default -n kube-public --type=merge -p '{"spec":{"authentication":[{"google":{"audiences":["//'${GKEHUB_API_ENDPOINT}'/projects/'${FLEET_PROJECT_ID}'/locations/global/memberships/'${CLUSTER_NAME}'"]},"name":"google-authentication-method"}]}}'
     fi
 
     set +eE
