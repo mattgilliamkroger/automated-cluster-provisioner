@@ -28,7 +28,7 @@ locals {
     { _GIT_SECRETS_PROJECT_ID = local.project_id_secrets },
     { _TIMEOUT_IN_SECONDS = var.cluster-creation-timeout },
     { _CS_VERSION = var.default-config-sync-version },
-    var.skip_identity_service ? { _SKIP_IDENTITY_SERVICE = "TRUE" } : {},
+    var.skip_identity_service == true ? { _SKIP_IDENTITY_SERVICE = "TRUE" } : {_SKIP_IDENTITY_SERVICE = "FALSE"},
     var.bart_create_bucket == true ? { _BART_CREATE_BUCKET = "TRUE" } : { _BART_CREATE_BUCKET = "FALSE" },
   )
   project_id_fleet   = coalesce(var.project_id_fleet, var.project_id)

@@ -244,8 +244,11 @@ steps:
     gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME \
         --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
 
-    if [ -z "${SKIP_IDENTITY_SERVICE}" ]; then
+    if [[ "${SKIP_IDENTITY_SERVICE}" == "FALSE" ]]; then
       kubectl patch clientconfig default -n kube-public --type=merge -p '{"spec":{"authentication":[{"google":{"audiences":["//'${GKEHUB_API_ENDPOINT}'/projects/'${FLEET_PROJECT_ID}'/locations/global/memberships/'${CLUSTER_NAME}'"]},"name":"google-authentication-method"}]}}'
+      echo "Group RBAC applied"
+    else
+      echo "Skipping Group RBAC setup"
     fi
 
     set +eE
