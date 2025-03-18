@@ -105,7 +105,6 @@ steps:
     export CLUSTER_INTENT_HEADER=$(head -1 cluster-intent-registry.csv)
     export CLUSTER_INTENT="$CLUSTER_INTENT_HEADER"$'\n'"$CLUSTER_INTENT_ROW"
 
-
     # Set parameters from cluster intent
     export MACHINE_PROJECT_ID=$(parse_csv_required "$CLUSTER_INTENT" "machine_project_id")
     export FLEET_PROJECT_ID=$(parse_csv_required "$CLUSTER_INTENT" "fleet_project_id")
@@ -136,6 +135,9 @@ steps:
     if [ -n "${GKEHUB_API_ENDPOINT_OVERRIDE:-}" ]; then
       echo "Setting api_endpoint_overrides/gkehub to $GKEHUB_API_ENDPOINT_OVERRIDE"
       gcloud config set api_endpoint_overrides/gkehub $GKEHUB_API_ENDPOINT_OVERRIDE
+      GKEHUB_API_ENDPOINT="staging-gkehub.sandbox.googleapis.com"
+    else
+      GKEHUB_API_ENDPOINT="gkehub.googleapis.com"
     fi
 
     if [ -n "${EDGE_NETWORK_API_ENDPOINT_OVERRIDE:-}" ]; then
@@ -240,11 +242,12 @@ steps:
     gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME \
         --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
 
-    if [ -z "${SKIP_IDENTITY_SERVICE}" ]; then
-      gcloud container fleet identity-service enable --project $FLEET_PROJECT_ID
-
-      gcloud container fleet identity-service apply --membership=$CLUSTER_NAME \
-          --config=./auth-config.yaml --project $FLEET_PROJECT_ID
+    if [[ "${SKIP_IDENTITY_SERVICE}" == "FALSE" ]]; then
+      FLEET_PROJECT_NUMBER=$(gcloud projects describe $FLEET_PROJECT_ID --format='value(projectNumber)')
+      kubectl patch clientconfig default -n kube-public --type=merge -p '{"spec":{"authentication":[{"google":{"audiences":["//'${GKEHUB_API_ENDPOINT}'/projects/'${FLEET_PROJECT_NUMBER}'/locations/global/memberships/'${CLUSTER_NAME}'"]},"name":"google-authentication-method"}]}}'
+      echo "Group RBAC applied"
+    else
+      echo "Skipping Group RBAC setup"
     fi
 
     set +eE
