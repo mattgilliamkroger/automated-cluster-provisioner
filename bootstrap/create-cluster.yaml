@@ -244,7 +244,7 @@ steps:
     gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME \
         --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
 
-    FLEET_PROJECT_NUMBER=$(gcloud projects describe cloud-alchemists-sandbox --format='value(projectNumber)')
+    FLEET_PROJECT_NUMBER=$(gcloud projects describe $FLEET_PROJECT_ID --format='value(projectNumber)')
     if [[ "${SKIP_IDENTITY_SERVICE}" == "FALSE" ]]; then
       kubectl patch clientconfig default -n kube-public --type=merge -p '{"spec":{"authentication":[{"google":{"audiences":["//'${GKEHUB_API_ENDPOINT}'/projects/'${FLEET_PROJECT_NUMBER}'/locations/global/memberships/'${CLUSTER_NAME}'"]},"name":"google-authentication-method"}]}}'
       echo "Group RBAC applied"
