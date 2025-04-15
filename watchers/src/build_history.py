@@ -80,15 +80,15 @@ class BuildHistory:
 
         triggers = self.client.list_build_triggers(trigger_request)
 
-        if len(triggers) == 0:
-            raise Exception(f"No triggers found named {self.trigger_name}")
-
         for trigger in triggers:
             if (trigger.name == self.trigger_name):
                 if trigger_name_filter == "":
                     trigger_name_filter += f"trigger_id={trigger.id}"
                 else:
                     trigger_name_filter += f" OR trigger_id={trigger.id}"
+
+        if trigger_name_filter == "":
+            raise Exception(f"No triggers found named {self.trigger_name}")
 
         request = cloudbuild.ListBuildsRequest(
             project_id=self.project_id,
@@ -117,7 +117,7 @@ class BuildHistory:
             if not zone:
                 # Builds are expected to have the _ZONE substitution. This is the value that is
                 # matched on to calculate whether a build should be retried or not. 
-                logging.warning(f"build found within _ZONE substitution, skipping... Build ID: {response.id}")
+                logging.warning(f"build found without _ZONE substitution, skipping... Build ID: {response.id}")
                 continue
 
             if zone in build_summary_dict:
