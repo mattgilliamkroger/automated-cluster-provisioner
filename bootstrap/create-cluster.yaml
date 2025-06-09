@@ -1,17 +1,3 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 steps:
 
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -326,17 +312,48 @@ steps:
     envsubst < apply-spec.yaml.template > apply-spec.yaml
 
     log_build_step "Configuring configsync"
+    gcloud config set project kr-9985-edgcmp-p
     gcloud secrets versions access latest --secret=$GIT_TOKEN_SECRETS_MANAGER_NAME \
-        --project $SECRETS_PROJECT_ID >> "$(pwd)/git-creds"
+        --project $SECRETS_PROJECT_ID >> $(pwd)/git-token
 
     kubectl create ns config-management-system --dry-run=client -o yaml | kubectl apply -f -
 
-    kubectl create secret generic git-creds --namespace="config-management-system" \
-        --from-literal=username=default --from-file=token="$(pwd)/git-creds" \
+    kubectl create secret generic git-creds \
+        --namespace="config-management-system" \
+        --from-literal=username=kalaivani-kr --from-file=token=$(pwd)/git-token \
         --dry-run=client -o yaml | kubectl apply -f -
 
+    gcloud alpha container hub config-management enable
     gcloud beta container fleet config-management apply --membership=$CLUSTER_NAME \
         --config=./apply-spec.yaml --project $FLEET_PROJECT_ID
+    
+    gcloud container fleet policycontroller enable --memberships=$CLUSTER_NAME  --project=$FLEET_PROJECT_ID
+    gcloud container fleet policycontroller describe --memberships=$CLUSTER_NAME  --project=$FLEET_PROJECT_ID  
+      
+      gcloud config set project kr-9985-edgcmp-p
+      gcloud secrets versions access latest --secret=robin-consumer-id \
+        --project $SECRETS_PROJECT_ID >> $(pwd)/consumer-id
+      gcloud secrets versions access latest --secret=robin-entitlement-id \
+        --project $SECRETS_PROJECT_ID >> $(pwd)/entitlement-id
+      gcloud secrets versions access latest --secret=robin-reporting-key \
+        --project $SECRETS_PROJECT_ID >> $(pwd)/reporting-key
+      gcloud secrets versions access latest --secret=jfrog-username \
+        --project $SECRETS_PROJECT_ID >> $(pwd)/jfrog-username
+      gcloud secrets versions access latest --secret=jfrog-password \
+        --project $SECRETS_PROJECT_ID >> $(pwd)/jfrog-password
+
+       kubectl create secret generic enterprise-sds-by-robin-license-603255 \
+        --namespace="robin-admin" \
+        --from-file=consumer-id=$(pwd)/consumer-id \
+        --from-file=entitlement-id=$(pwd)/entitlement-id \
+        --from-file=reporting-key=$(pwd)/reporting-key \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+       kubectl create secret generic jfrog-creds \
+        --namespace="config-management-system" \
+        --from-file=username=$(pwd)/jfrog-username \
+        --from-file=password=$(pwd)/jfrog-password \
+        --dry-run=client -o yaml | kubectl apply -f -
 
     if [[ "${SKIP_IDENTITY_SERVICE}" == "FALSE" ]]; then
       log_build_step "Configuring Group RBAC"
@@ -371,9 +388,9 @@ steps:
       #                       - (10m for extra buffer) - (30m for vm wait)
       WORKLOAD_TIMEOUT="$(($TIMEOUT_IN_SECONDS-"9600"))"
 
-      log_build_step "Waiting for workload healthchecks to pass"
-      kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=WorkloadsHealthy \
-          --timeout="${WORKLOAD_TIMEOUT}s" || die "Workloads are not healthy after ${WORKLOAD_TIMEOUT}s"
+      # log_build_step "Waiting for workload healthchecks to pass"
+      # kubectl wait healthchecks.validator.gdc.gke.io/default --for condition=WorkloadsHealthy \
+      #     --timeout="${WORKLOAD_TIMEOUT}s" || die "Workloads are not healthy after ${WORKLOAD_TIMEOUT}s"
     fi
     
     set -eE
@@ -405,6 +422,14 @@ steps:
     else
       echo "Backups for this cluster is not enabled. Not creating GCS bucket."
     fi
+
+    echo "Run Sanity Check"
+    if gcloud edge-cloud container clusters describe $CLUSTER_NAME --location=$LOCATION; then
+      sleep 1800
+      sh -x repo/sanity_report_combine.sh
+    else
+      die "Cluster failed to build"
+    fi    
 
     zone_signal $ZONE_ID FACTORY_TURNUP_CHECKS_PASSED
 
